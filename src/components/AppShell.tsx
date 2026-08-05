@@ -134,7 +134,7 @@ export function AppShell() {
           </div>
           <div>
             <h1 className="text-sm font-semibold leading-tight">
-              BESS Site Finder
+              Power Poker
             </h1>
             <p className="text-[11px] text-muted-foreground">
               US ISOs · develop-to-sell screening

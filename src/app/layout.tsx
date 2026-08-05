@@ -14,9 +14,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "BESS Site Finder · US ISOs",
+  title: "Power Poker · US ISOs",
   description:
-    "Map US ISO substations, transmission lines, and interconnection queues (ERCOT, SPP, MISO, PJM, CAISO, NYISO, ISO-NE) to screen battery storage development sites.",
+    "Power Poker — map US ISO substations, transmission lines, and interconnection queues (ERCOT, SPP, MISO, PJM, CAISO, NYISO, ISO-NE) to screen battery storage development sites.",
 };
 
 export default function RootLayout({

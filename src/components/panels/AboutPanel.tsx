@@ -9,7 +9,7 @@ export function AboutPanel({ meta }: { meta: DataMeta | null }) {
     <ScrollArea className="h-full">
       <div className="space-y-4 px-4 py-4 text-sm">
         <div>
-          <h2 className="text-base font-semibold">BESS Site Finder</h2>
+          <h2 className="text-base font-semibold">Power Poker</h2>
           <p className="mt-1 text-muted-foreground">
             Screen substations across the major US ISOs (ERCOT, SPP, MISO, PJM,
             CAISO, NYISO, ISO-NE) for develop-to-sell battery storage

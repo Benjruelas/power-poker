@@ -89,7 +89,7 @@ async function fetchBuffer(
   const res = await fetch(url, {
     ...init,
     headers: {
-      "User-Agent": "BESS-Site-Finder/1.0 (research; public data)",
+      "User-Agent": "Power-Poker/1.0 (research; public data)",
       ...(init.headers as Record<string, string>),
     },
   });

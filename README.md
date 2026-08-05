@@ -1,4 +1,4 @@
-# BESS Site Finder (US ISOs)
+# Power Poker (US ISOs)
 
 Map-based screening tool for battery energy storage (BESS) develop-to-sell opportunities across the major US ISOs: **ERCOT, SPP, MISO, PJM, CAISO, NYISO, ISO-NE**. It overlays public substations, transmission lines, and interconnection queues, scores substations for opportunity, and helps you shortlist sites with sizing and cost sketches.
 

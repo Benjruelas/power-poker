@@ -1,5 +1,5 @@
 /**
- * Static data pipeline for BESS Site Finder.
+ * Static data pipeline for Power Poker.
  * Run: npm run data
  *
  * Sources:
@@ -269,7 +269,7 @@ function sleep(ms: number) {
 
 async function fetchJson<T>(url: string): Promise<T> {
   const res = await fetch(url, {
-    headers: { "User-Agent": "BESS-Site-Finder/1.0 (research; public data)" },
+    headers: { "User-Agent": "Power-Poker/1.0 (research; public data)" },
   });
   if (!res.ok) throw new Error(`Fetch failed ${res.status}: ${url}`);
   return res.json() as Promise<T>;
@@ -277,7 +277,7 @@ async function fetchJson<T>(url: string): Promise<T> {
 
 async function fetchText(url: string): Promise<string> {
   const res = await fetch(url, {
-    headers: { "User-Agent": "BESS-Site-Finder/1.0 (research; public data)" },
+    headers: { "User-Agent": "Power-Poker/1.0 (research; public data)" },
   });
   if (!res.ok) throw new Error(`Fetch failed ${res.status}: ${url}`);
   return res.text();
@@ -1505,7 +1505,7 @@ async function buildCounties(): Promise<{
 }
 
 async function main() {
-  console.log("=== BESS Site Finder data build (all major ISOs, CONUS) ===");
+  console.log("=== Power Poker data build (all major ISOs, CONUS) ===");
   await mkdir(OUT_DIR, { recursive: true });
   await mkdir(RAW_DIR, { recursive: true });
 

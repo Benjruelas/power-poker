@@ -281,7 +281,7 @@ export const useAppStore = create<AppState>()(
       },
     }),
     {
-      name: "bess-site-finder-v7",
+      name: "power-poker-v1",
       partialize: (s) => ({
         shortlists: s.shortlists,
         activeListId: s.activeListId,
