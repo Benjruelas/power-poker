@@ -1,0 +1,18 @@
+{
+  "generatedAt": "2026-08-05T03:24:12.115Z",
+  "sourceReport": "GIS_Report_June_2026.xlsx + SPP + MISO + PJM + CAISO + NYISO + ISO-NE",
+  "substationCount": 58536,
+  "projectCount": 7030,
+  "lineCount": 51925,
+  "countyCount": 3109,
+  "notes": [
+    "Substations & lines: HIFLD Open (public domain), contiguous US.",
+    "Queues: ERCOTQueue, SPP GI CSV, MISO getprojects, PJM ExportToXls, CAISO PublicQueueReport, NYISO Interconnection Queue, ISO-NE IRTT public queue.",
+    "Withdrawn projects excluded where the source marks them.",
+    "Border states may show queue rows from more than one ISO.",
+    "Counties: U.S. Census Bureau cartographic boundaries (CONUS).",
+    "Project coordinates: POI-name matched to HIFLD substations when possible; otherwise county centroid.",
+    "Opportunity score = voltage (0–35) + crowding (0–35) + BESS signal (0–20) + connectivity (0–10).",
+    "Five-mile radius used for proximity metrics (~8.05 km). One-mile parcel ring shown in UI (~1.61 km)."
+  ]
+}
