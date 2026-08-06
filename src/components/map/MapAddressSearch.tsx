@@ -6,13 +6,19 @@ import type { GeocodeSuggestion } from "@/lib/geocode";
 
 type Props = {
   onSelect: (lng: number, lat: number, label: string) => void;
-  /** Optional map-center bias as [lng, lat] for Mapbox proximity. */
+  /** Optional map-center bias as [lng, lat] for Mapbox proximity + local owner/APN. */
   proximity?: [number, number] | null;
 };
 
+function kindLabel(kind: GeocodeSuggestion["kind"]): string | null {
+  if (kind === "owner") return "Owner";
+  if (kind === "parcel") return "Parcel";
+  if (kind === "address") return "Address";
+  return null;
+}
+
 /**
- * Address autocomplete — mirrors property_list_builder AddressAutocompleteField
- * (Mapbox address+poi suggestions), not the CRM global map search.
+ * Address / owner / parcel autocomplete — Mapbox places + LandRecords WFS.
  */
 export function MapAddressSearch({ onSelect, proximity = null }: Props) {
   const listId = useId();
@@ -133,8 +139,8 @@ export function MapAddressSearch({ onSelect, proximity = null }: Props) {
           }}
           onFocus={() => setOpen(true)}
           onKeyDown={onKeyDown}
-          placeholder="Start typing an address…"
-          aria-label="Search address"
+          placeholder="Address, owner, or parcel #…"
+          aria-label="Search address, owner, or parcel number"
           aria-autocomplete="list"
           aria-controls={listId}
           aria-expanded={open && suggestions.length > 0}
@@ -168,29 +174,46 @@ export function MapAddressSearch({ onSelect, proximity = null }: Props) {
         <ul
           id={listId}
           role="listbox"
-          className="absolute left-0 right-0 top-full z-50 mt-1 max-h-48 overflow-auto rounded-md border border-slate-200 bg-white py-1 shadow-lg"
+          className="absolute left-0 right-0 top-full z-50 mt-1 max-h-64 overflow-auto rounded-md border border-slate-200 bg-white py-1 shadow-lg"
         >
           {error && suggestions.length === 0 && (
             <li className="px-3 py-2 text-xs text-slate-500">{error}</li>
           )}
-          {suggestions.map((s, i) => (
-            <li key={s.id} role="option" aria-selected={i === activeIdx}>
-              <button
-                type="button"
-                className={[
-                  "w-full truncate px-3 py-2 text-left text-sm",
-                  i === activeIdx
-                    ? "bg-slate-100 text-slate-900"
-                    : "text-slate-700 hover:bg-slate-50",
-                ].join(" ")}
-                onMouseDown={(e) => e.preventDefault()}
-                onMouseEnter={() => setActiveIdx(i)}
-                onClick={() => pick(s)}
-              >
-                {s.label}
-              </button>
-            </li>
-          ))}
+          {suggestions.map((s, i) => {
+            const kind = kindLabel(s.kind);
+            return (
+              <li key={s.id} role="option" aria-selected={i === activeIdx}>
+                <button
+                  type="button"
+                  className={[
+                    "w-full px-3 py-2 text-left",
+                    i === activeIdx
+                      ? "bg-slate-100 text-slate-900"
+                      : "text-slate-700 hover:bg-slate-50",
+                  ].join(" ")}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onMouseEnter={() => setActiveIdx(i)}
+                  onClick={() => pick(s)}
+                >
+                  <span className="flex gap-2">
+                    {kind && (
+                      <span className="w-12 shrink-0 pt-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-400">
+                        {kind}
+                      </span>
+                    )}
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm">{s.label}</span>
+                      {s.subtitle && (
+                        <span className="mt-0.5 block truncate text-xs text-slate-500">
+                          {s.subtitle}
+                        </span>
+                      )}
+                    </span>
+                  </span>
+                </button>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

@@ -252,17 +252,41 @@ type DrawnProj = {
   funnelStage: string;
 };
 
+/** Basemap without labels — labels render in a top overlay above substations. */
 const OSM_TILES = [
-  "https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png",
-  "https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png",
-  "https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png",
+  "https://a.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}@2x.png",
+  "https://b.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}@2x.png",
+  "https://c.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}@2x.png",
 ];
 const SAT_TILES = [
   "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
 ];
+const STREET_LABEL_TILES = [
+  "https://a.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}@2x.png",
+  "https://b.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}@2x.png",
+  "https://c.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}@2x.png",
+];
+/** Light text labels for dark imagery (Carto XYZ — reliable in MapLibre). */
+const SAT_LABEL_TILES = [
+  "https://a.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}@2x.png",
+  "https://b.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}@2x.png",
+  "https://c.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}@2x.png",
+];
 const OSM_ATTR =
   '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; CARTO';
 const SAT_ATTR = "Esri, Maxar, Earthstar Geographics";
+
+const LABELS_SOURCE = "place-labels";
+const LABELS_LAYER = "place-labels";
+
+function applyLabelTiles(map: maplibregl.Map, satellite: boolean) {
+  const src = map.getSource(LABELS_SOURCE) as
+    | maplibregl.RasterTileSource
+    | undefined;
+  if (src && typeof src.setTiles === "function") {
+    src.setTiles(satellite ? SAT_LABEL_TILES : STREET_LABEL_TILES);
+  }
+}
 
 const FLOOD_SOURCE = "flood-zones";
 const FLOOD_LAYER = "flood-zones";
@@ -454,6 +478,24 @@ function ensureBaseLayers(map: maplibregl.Map) {
     // Keep rings above parcels after style reloads
     if (map.getLayer("rings-fill")) map.moveLayer("rings-fill");
     if (map.getLayer("rings-line")) map.moveLayer("rings-line");
+  }
+
+  // Place labels above flood/parcels/rings (top of MapLibre stack)
+  if (!map.getSource(LABELS_SOURCE)) {
+    map.addSource(LABELS_SOURCE, {
+      type: "raster",
+      tiles: STREET_LABEL_TILES,
+      tileSize: 256,
+      attribution: "CARTO",
+    });
+    map.addLayer({
+      id: LABELS_LAYER,
+      type: "raster",
+      source: LABELS_SOURCE,
+      paint: { "raster-opacity": 1 },
+    });
+  } else if (map.getLayer(LABELS_LAYER)) {
+    map.moveLayer(LABELS_LAYER);
   }
 }
 
@@ -690,8 +732,10 @@ export function BessMap({
       try {
         ensureBaseLayers(map);
         const f = filtersRef.current;
+        applyLabelTiles(map, f.satellite);
         applyParcelBasemapPaint(map, f.satellite);
         setParcelLayerVisibility(map, f.showParcels, f.satellite);
+        if (map.getLayer(LABELS_LAYER)) map.moveLayer(LABELS_LAYER);
         setMapReady(true);
         setStatus("");
         map.resize();
@@ -959,12 +1003,15 @@ export function BessMap({
     if (satRef.current === filters.satellite) return;
     satRef.current = filters.satellite;
     applyBasemap(map, filters.satellite);
+    applyLabelTiles(map, filters.satellite);
     applyParcelBasemapPaint(map, filters.satellite);
     setParcelLayerVisibility(
       map,
       filtersRef.current.showParcels,
       filters.satellite
     );
+    // Keep city labels above flood/parcels/rings
+    if (map.getLayer(LABELS_LAYER)) map.moveLayer(LABELS_LAYER);
     paintRef.current();
   }, [filters.satellite, mapReady]);
 

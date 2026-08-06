@@ -10,6 +10,14 @@ const FEMA_EXPORT =
 const TILE_CACHE_CONTROL =
   "public, max-age=86400, s-maxage=86400, stale-while-revalidate=3600";
 
+/** 1×1 transparent PNG — avoids MapLibre AJAXError spam when FEMA resets. */
+const TRANSPARENT_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  "base64"
+);
+
+const MAX_ATTEMPTS = 3;
+
 /** Web Mercator tile → EPSG:3857 BBOX (minx,miny,maxx,maxy). */
 function tileBBox3857(z: number, x: number, y: number): string {
   const origin = 20037508.342789244;
@@ -19,6 +27,81 @@ function tileBBox3857(z: number, x: number, y: number): string {
   const maxY = origin - y * size;
   const minY = maxY - size;
   return `${minX},${minY},${maxX},${maxY}`;
+}
+
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function isTransient(err: unknown): boolean {
+  const code =
+    err && typeof err === "object" && "cause" in err
+      ? String((err as { cause?: { code?: string } }).cause?.code || "")
+      : "";
+  const msg = err instanceof Error ? err.message : String(err);
+  return (
+    code === "ECONNRESET" ||
+    code === "ETIMEDOUT" ||
+    code === "ECONNREFUSED" ||
+    code === "UND_ERR_SOCKET" ||
+    /fetch failed|ECONNRESET|socket|timeout/i.test(msg)
+  );
+}
+
+async function fetchFemaTile(url: string): Promise<Response | null> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const upstream = await fetch(url, {
+        headers: {
+          Accept: "image/png",
+          "User-Agent": "Power-Poker/1.0 (flood overlay; research)",
+        },
+        // Avoid hanging forever on a half-open FEMA socket
+        signal: AbortSignal.timeout(12_000),
+      });
+      if (upstream.ok) return upstream;
+      // Retry 5xx / 429; don't retry 4xx
+      if (upstream.status >= 500 || upstream.status === 429) {
+        lastErr = new Error(`upstream ${upstream.status}`);
+        if (attempt < MAX_ATTEMPTS) {
+          await sleep(80 * attempt + Math.floor(Math.random() * 80));
+          continue;
+        }
+        return null;
+      }
+      return null;
+    } catch (err) {
+      lastErr = err;
+      if (attempt < MAX_ATTEMPTS && isTransient(err)) {
+        await sleep(100 * attempt + Math.floor(Math.random() * 120));
+        continue;
+      }
+      if (attempt < MAX_ATTEMPTS) {
+        await sleep(100 * attempt);
+        continue;
+      }
+      break;
+    }
+  }
+  console.warn(
+    "FEMA flood tile fetch failed after retries:",
+    lastErr instanceof Error ? lastErr.message : lastErr
+  );
+  return null;
+}
+
+function emptyTile(cacheable: boolean) {
+  return new Response(TRANSPARENT_PNG, {
+    status: 200,
+    headers: {
+      "Content-Type": "image/png",
+      // Don't cache misses long — MapLibre will refetch on next view
+      "Cache-Control": cacheable
+        ? TILE_CACHE_CONTROL
+        : "public, max-age=30, s-maxage=30",
+    },
+  });
 }
 
 export async function GET(request: Request) {
@@ -54,30 +137,13 @@ export async function GET(request: Request) {
   url.searchParams.set("layers", "show:28");
   url.searchParams.set("f", "image");
 
-  let upstream: Response;
-  try {
-    upstream = await fetch(url.toString(), {
-      headers: { Accept: "image/png" },
-    });
-  } catch (e) {
-    console.error("FEMA flood tile fetch error:", e);
-    return Response.json({ error: "upstream fetch failed" }, { status: 502 });
-  }
-
-  if (!upstream.ok) {
-    return Response.json(
-      { error: `upstream ${upstream.status}` },
-      { status: upstream.status >= 500 ? 502 : upstream.status }
-    );
-  }
+  const upstream = await fetchFemaTile(url.toString());
+  if (!upstream) return emptyTile(false);
 
   const contentType = upstream.headers.get("content-type") || "";
   const buf = Buffer.from(await upstream.arrayBuffer());
   if (buf.length === 0 || !contentType.includes("image")) {
-    return new Response(null, {
-      status: 204,
-      headers: { "Cache-Control": TILE_CACHE_CONTROL },
-    });
+    return emptyTile(true);
   }
 
   return new Response(buf, {

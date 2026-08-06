@@ -1,10 +1,12 @@
 import type { GeocodeSuggestion } from "@/lib/geocode";
+import { enforceIpRateLimit } from "@/lib/landrecords/rateLimit";
+import { searchParcelsByOwnerOrId } from "@/lib/landrecords/searchParcels";
 
 export const runtime = "nodejs";
+export const maxDuration = 30;
 
 /**
- * Mapbox Geocoding autocomplete — same approach as property_list_builder's
- * AddressAutocompleteField / useMapboxGeocode (address + poi, US, autocomplete).
+ * Unified place search: Mapbox address/POI + LandRecords owner / parcel ID.
  */
 function getMapboxToken(): string {
   return (
@@ -19,7 +21,6 @@ type MapboxFeature = {
   place_name?: string;
   center?: [number, number];
   geometry?: { coordinates?: [number, number] };
-  context?: { id?: string; text?: string; short_code?: string }[];
 };
 
 function parseCoordinateQuery(raw: string): { lat: number; lng: number } | null {
@@ -31,7 +32,59 @@ function parseCoordinateQuery(raw: string): { lat: number; lng: number } | null 
   return { lat, lng };
 }
 
+function parseProximity(
+  raw: string | null
+): [number, number] | null {
+  if (!raw || !/^-?\d+(\.\d+)?,-?\d+(\.\d+)?$/.test(raw)) return null;
+  const [lng, lat] = raw.split(",").map(Number) as [number, number];
+  if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null;
+  return [lng, lat];
+}
+
+async function searchMapbox(
+  q: string,
+  accessToken: string,
+  proximity: [number, number] | null
+): Promise<GeocodeSuggestion[]> {
+  const url = new URL(
+    `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(q)}.json`
+  );
+  url.searchParams.set("access_token", accessToken);
+  url.searchParams.set("limit", "5");
+  url.searchParams.set("country", "us");
+  url.searchParams.set("types", "address,poi");
+  url.searchParams.set("autocomplete", "true");
+  if (proximity) {
+    url.searchParams.set("proximity", `${proximity[0]},${proximity[1]}`);
+  }
+
+  const res = await fetch(url.toString(), {
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) return [];
+  const data = (await res.json()) as { features?: MapboxFeature[] };
+  const suggestions: GeocodeSuggestion[] = [];
+
+  for (const [i, f] of (data.features ?? []).entries()) {
+    const [lng, lat] = f.center || f.geometry?.coordinates || [];
+    if (!Number.isFinite(lng) || !Number.isFinite(lat)) continue;
+    const label = (f.place_name || q).trim();
+    if (!label) continue;
+    suggestions.push({
+      id: f.id || `mapbox-${i}`,
+      label,
+      lng: lng as number,
+      lat: lat as number,
+      kind: "address",
+    });
+  }
+  return suggestions;
+}
+
 export async function GET(req: Request) {
+  const limited = enforceIpRateLimit(req, "geocode", 60, 60);
+  if (limited) return limited;
+
   const { searchParams } = new URL(req.url);
   const q = (searchParams.get("q") || "").trim();
   if (q.length < 2) {
@@ -51,61 +104,38 @@ export async function GET(req: Request) {
           label,
           lng: coord.lng,
           lat: coord.lat,
+          kind: "coord",
         },
       ] satisfies GeocodeSuggestion[],
     });
   }
 
+  const proximity = parseProximity(searchParams.get("proximity"));
   const accessToken = getMapboxToken();
-  if (!accessToken) {
+  const hasLandRecords = Boolean(process.env.LANDRECORDS_API_KEY);
+
+  if (!accessToken && !hasLandRecords) {
     return Response.json(
-      { error: "Mapbox access token not configured." },
+      { error: "Search is not configured." },
       { status: 500 }
     );
   }
 
-  const proximity = searchParams.get("proximity"); // optional "lng,lat"
-  const url = new URL(
-    `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(q)}.json`
-  );
-  url.searchParams.set("access_token", accessToken);
-  url.searchParams.set("limit", "6");
-  url.searchParams.set("country", "us");
-  url.searchParams.set("types", "address,poi");
-  url.searchParams.set("autocomplete", "true");
-  if (proximity && /^-?\d+(\.\d+)?,-?\d+(\.\d+)?$/.test(proximity)) {
-    url.searchParams.set("proximity", proximity);
-  }
-
   try {
-    const res = await fetch(url.toString(), {
-      headers: { Accept: "application/json" },
-    });
-    if (!res.ok) {
-      const body = (await res.json().catch(() => ({}))) as { message?: string };
-      return Response.json(
-        { error: body.message || `Mapbox error: ${res.status}` },
-        { status: 502 }
-      );
-    }
-    const data = (await res.json()) as { features?: MapboxFeature[] };
-    const suggestions: GeocodeSuggestion[] = [];
+    const [mapbox, parcels] = await Promise.all([
+      accessToken
+        ? searchMapbox(q, accessToken, proximity).catch(() => [])
+        : Promise.resolve([] as GeocodeSuggestion[]),
+      hasLandRecords && q.length >= 3
+        ? searchParcelsByOwnerOrId(q, proximity).catch(() => [])
+        : Promise.resolve([] as GeocodeSuggestion[]),
+    ]);
 
-    for (const [i, f] of (data.features ?? []).entries()) {
-      const [lng, lat] = f.center || f.geometry?.coordinates || [];
-      if (!Number.isFinite(lng) || !Number.isFinite(lat)) continue;
-      const label = (f.place_name || q).trim();
-      if (!label) continue;
-      suggestions.push({
-        id: f.id || `mapbox-${i}`,
-        label,
-        lng: lng as number,
-        lat: lat as number,
-      });
-    }
+    // Owner / APN first, then addresses
+    const suggestions = [...parcels, ...mapbox].slice(0, 10);
 
     return Response.json({ suggestions });
   } catch {
-    return Response.json({ error: "Geocoder unavailable" }, { status: 502 });
+    return Response.json({ error: "Search unavailable" }, { status: 502 });
   }
 }
