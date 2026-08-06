@@ -100,6 +100,7 @@ export function FilterSidebar({
                 ["showProjects", "Queue projects"],
                 ["showCounties", "County boundaries"],
                 ["showParcels", "Parcels (zoom 15+)"],
+                ["showFloodZones", "Flood zones"],
                 ["satellite", "Satellite basemap"],
               ] as const
             ).map(([key, label]) => (

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import type { FeatureCollection, Point } from "geojson";
-import { Satellite } from "lucide-react";
+import { Droplets, Satellite } from "lucide-react";
 import "maplibre-gl/dist/maplibre-gl.css";
 
 import { useAppStore } from "@/lib/store";
@@ -264,6 +264,17 @@ const OSM_ATTR =
   '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; CARTO';
 const SAT_ATTR = "Esri, Maxar, Earthstar Geographics";
 
+const FLOOD_SOURCE = "flood-zones";
+const FLOOD_LAYER = "flood-zones";
+/** Proxied FEMA NFHL WMS (layer 12) — browser can't hit hazards.fema.gov (CORS). */
+const FLOOD_ATTR = "FEMA National Flood Hazard Layer";
+
+function floodTileUrls(): string[] {
+  const origin =
+    typeof window !== "undefined" ? window.location.origin : "";
+  return [`${origin}/api/flood-tiles?z={z}&x={x}&y={y}`];
+}
+
 /** Single style so satellite toggle never wipes parcel / overlay layers. */
 function buildMapStyle(satellite: boolean): maplibregl.StyleSpecification {
   return {
@@ -317,6 +328,23 @@ function scoreColor(score: number): string {
 }
 
 function ensureBaseLayers(map: maplibregl.Map) {
+  // FEMA flood zones — above basemap, below counties/lines/parcels
+  if (!map.getSource(FLOOD_SOURCE)) {
+    map.addSource(FLOOD_SOURCE, {
+      type: "raster",
+      tiles: floodTileUrls(),
+      tileSize: 256,
+      attribution: FLOOD_ATTR,
+    });
+    map.addLayer({
+      id: FLOOD_LAYER,
+      type: "raster",
+      source: FLOOD_SOURCE,
+      layout: { visibility: "none" },
+      paint: { "raster-opacity": 0.55 },
+    });
+  }
+
   if (!map.getSource("counties")) {
     map.addSource("counties", { type: "geojson", data: emptyFC() });
     map.addLayer({
@@ -945,6 +973,7 @@ export function BessMap({
     const map = mapRef.current;
     if (!map || !mapReady) return;
 
+    setVis(map, FLOOD_LAYER, filters.showFloodZones);
     setVis(map, "counties-fill", filters.showCounties);
     setVis(map, "counties-line", filters.showCounties);
     setVis(map, "lines-layer", filters.showLines);
@@ -979,6 +1008,7 @@ export function BessMap({
     paintRef.current();
   }, [
     mapReady,
+    filters.showFloodZones,
     filters.showCounties,
     filters.showLines,
     filters.showParcels,
@@ -1093,7 +1123,7 @@ export function BessMap({
         />
       </div>
       {/* Under MapLibre NavigationControl (top-right, ~two 29px zoom buttons) */}
-      <div className="pointer-events-auto absolute right-2.5 top-[80px] z-50">
+      <div className="pointer-events-auto absolute right-2.5 top-[80px] z-50 flex flex-col gap-0.5">
         <button
           type="button"
           aria-label="Satellite basemap"
@@ -1111,6 +1141,26 @@ export function BessMap({
           ].join(" ")}
         >
           <Satellite className="size-3.5" strokeWidth={2.25} aria-hidden />
+        </button>
+        <button
+          type="button"
+          aria-label="Flood zones"
+          aria-pressed={filters.showFloodZones}
+          title={
+            filters.showFloodZones ? "Hide flood zones" : "Show flood zones"
+          }
+          onClick={() =>
+            setFilters({ showFloodZones: !filters.showFloodZones })
+          }
+          className={[
+            "flex h-[29px] w-[29px] items-center justify-center rounded border shadow-sm",
+            "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-sky-500",
+            filters.showFloodZones
+              ? "border-sky-800 bg-sky-700 text-white hover:bg-sky-800"
+              : "border-slate-300 bg-white text-slate-900 hover:bg-slate-100",
+          ].join(" ")}
+        >
+          <Droplets className="size-3.5" strokeWidth={2.25} aria-hidden />
         </button>
       </div>
       {status && (

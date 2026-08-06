@@ -121,6 +121,7 @@ export interface AppFilters {
   showProjects: boolean;
   showCounties: boolean;
   showParcels: boolean;
+  showFloodZones: boolean;
   satellite: boolean;
 }
 
@@ -185,6 +186,7 @@ export const DEFAULT_FILTERS: AppFilters = {
   showProjects: true,
   showCounties: true,
   showParcels: true,
+  showFloodZones: false,
   satellite: false,
 };
 
