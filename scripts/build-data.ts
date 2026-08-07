@@ -9,7 +9,7 @@
  * - Fiber routes: OpenStreetMap communication/fibre ways + HIFLD USACE IENC cables
  */
 
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import * as turf from "@turf/turf";
 import type {
