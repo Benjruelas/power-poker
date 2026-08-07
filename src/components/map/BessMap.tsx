@@ -25,6 +25,7 @@ import {
   type SelectedParcel,
 } from "@/lib/landrecords/parcelPropertyMap";
 import type {
+  FiberRouteProperties,
   QueueProjectProperties,
   SubstationProperties,
   TransmissionLineProperties,
@@ -229,6 +230,10 @@ type LinesFC = FeatureCollection<
   GeoJSON.LineString | GeoJSON.MultiLineString,
   TransmissionLineProperties
 >;
+type FiberRoutesFC = FeatureCollection<
+  GeoJSON.LineString | GeoJSON.MultiLineString,
+  FiberRouteProperties
+>;
 
 type DrawnSub = {
   id: string;
@@ -292,6 +297,14 @@ const FLOOD_SOURCE = "flood-zones";
 const FLOOD_LAYER = "flood-zones";
 /** Proxied FEMA NFHL WMS (layer 12) — browser can't hit hazards.fema.gov (CORS). */
 const FLOOD_ATTR = "FEMA National Flood Hazard Layer";
+
+const FIBER_COV_SOURCE = "fiber-coverage";
+const FIBER_COV_FILL = "fiber-coverage-fill";
+const FIBER_COV_LINE = "fiber-coverage-line";
+const FIBER_COV_ATTR = "FCC Broadband Data Collection via Esri Living Atlas";
+
+const FIBER_ROUTES_SOURCE = "fiber-routes";
+const FIBER_ROUTES_LAYER = "fiber-routes-layer";
 
 function floodTileUrls(): string[] {
   const origin =
@@ -369,6 +382,46 @@ function ensureBaseLayers(map: maplibregl.Map) {
     });
   }
 
+  // FCC BDC fiber availability polygons (bbox-fetched via /api/fiber-coverage)
+  if (!map.getSource(FIBER_COV_SOURCE)) {
+    map.addSource(FIBER_COV_SOURCE, {
+      type: "geojson",
+      data: emptyFC(),
+      attribution: FIBER_COV_ATTR,
+    });
+    map.addLayer({
+      id: FIBER_COV_FILL,
+      type: "fill",
+      source: FIBER_COV_SOURCE,
+      layout: { visibility: "none" },
+      paint: {
+        "fill-color": "#0d9488",
+        "fill-opacity": [
+          "interpolate",
+          ["linear"],
+          ["coalesce", ["get", "uniqueProvidersFiber"], 1],
+          1,
+          0.12,
+          5,
+          0.22,
+          15,
+          0.35,
+        ],
+      },
+    });
+    map.addLayer({
+      id: FIBER_COV_LINE,
+      type: "line",
+      source: FIBER_COV_SOURCE,
+      layout: { visibility: "none" },
+      paint: {
+        "line-color": "#0f766e",
+        "line-width": 0.6,
+        "line-opacity": 0.45,
+      },
+    });
+  }
+
   if (!map.getSource("counties")) {
     map.addSource("counties", { type: "geojson", data: emptyFC() });
     map.addLayer({
@@ -402,6 +455,21 @@ function ensureBaseLayers(map: maplibregl.Map) {
         "line-color": "#94a3b8",
         "line-width": 1,
         "line-opacity": 0.5,
+      },
+    });
+  }
+
+  if (!map.getSource(FIBER_ROUTES_SOURCE)) {
+    map.addSource(FIBER_ROUTES_SOURCE, { type: "geojson", data: emptyFC() });
+    map.addLayer({
+      id: FIBER_ROUTES_LAYER,
+      type: "line",
+      source: FIBER_ROUTES_SOURCE,
+      layout: { visibility: "none" },
+      paint: {
+        "line-color": "#0e7490",
+        "line-width": 1.75,
+        "line-opacity": 0.75,
       },
     });
   }
@@ -508,6 +576,7 @@ interface BessMapProps {
   substations: SubsFC | null;
   projects: ProjFC | null;
   lines: LinesFC | null;
+  fiberRoutes: FiberRoutesFC | null;
   counties: FeatureCollection | null;
 }
 
@@ -515,6 +584,7 @@ export function BessMap({
   substations,
   projects,
   lines,
+  fiberRoutes,
   counties,
 }: BessMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1021,9 +1091,12 @@ export function BessMap({
     if (!map || !mapReady) return;
 
     setVis(map, FLOOD_LAYER, filters.showFloodZones);
+    setVis(map, FIBER_COV_FILL, filters.showFiberCoverage);
+    setVis(map, FIBER_COV_LINE, filters.showFiberCoverage);
     setVis(map, "counties-fill", filters.showCounties);
     setVis(map, "counties-line", filters.showCounties);
     setVis(map, "lines-layer", filters.showLines);
+    setVis(map, FIBER_ROUTES_LAYER, filters.showFiberRoutes);
     applyParcelBasemapPaint(map, filters.satellite);
     setParcelLayerVisibility(map, filters.showParcels, filters.satellite);
 
@@ -1056,8 +1129,10 @@ export function BessMap({
   }, [
     mapReady,
     filters.showFloodZones,
+    filters.showFiberCoverage,
     filters.showCounties,
     filters.showLines,
+    filters.showFiberRoutes,
     filters.showParcels,
     filters.satellite,
     filters.showSubstations,
@@ -1087,6 +1162,103 @@ export function BessMap({
     });
     setVis(map, "lines-layer", true);
   }, [mapReady, filters.showLines, lines]);
+
+  // Lazy-load fiber cable routes when toggled on
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady || !filters.showFiberRoutes || !fiberRoutes) return;
+    const src = map.getSource(FIBER_ROUTES_SOURCE) as
+      | maplibregl.GeoJSONSource
+      | undefined;
+    if (!src) return;
+    src.setData({
+      type: "FeatureCollection",
+      features: fiberRoutes.features.map((f) => ({
+        type: "Feature" as const,
+        geometry: f.geometry,
+        properties: {
+          id: f.properties.id,
+          name: f.properties.name,
+          source: f.properties.source,
+          category: f.properties.category,
+        },
+      })),
+    });
+    setVis(map, FIBER_ROUTES_LAYER, true);
+  }, [mapReady, filters.showFiberRoutes, fiberRoutes]);
+
+  // FCC fiber coverage — refetch on pan/zoom when layer is on
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let abort: AbortController | null = null;
+    let seq = 0;
+
+    const clearCoverage = () => {
+      const src = map.getSource(FIBER_COV_SOURCE) as
+        | maplibregl.GeoJSONSource
+        | undefined;
+      if (src) src.setData(emptyFC());
+    };
+
+    const fetchCoverage = () => {
+      if (!filtersRef.current.showFiberCoverage) {
+        clearCoverage();
+        return;
+      }
+      const b = map.getBounds();
+      const z = Math.round(map.getZoom());
+      const bbox = [
+        b.getWest(),
+        b.getSouth(),
+        b.getEast(),
+        b.getNorth(),
+      ]
+        .map((n) => n.toFixed(5))
+        .join(",");
+      const mySeq = ++seq;
+      abort?.abort();
+      abort = new AbortController();
+      const url = `/api/fiber-coverage?bbox=${encodeURIComponent(bbox)}&z=${z}`;
+      fetch(url, { signal: abort.signal })
+        .then((r) => (r.ok ? r.json() : emptyFC()))
+        .then((fc: FeatureCollection) => {
+          if (mySeq !== seq) return;
+          const src = map.getSource(FIBER_COV_SOURCE) as
+            | maplibregl.GeoJSONSource
+            | undefined;
+          if (src) src.setData(fc ?? emptyFC());
+        })
+        .catch((err) => {
+          if (err?.name === "AbortError") return;
+          console.warn("fiber coverage fetch failed", err);
+        });
+    };
+
+    const schedule = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(fetchCoverage, 280);
+    };
+
+    if (filters.showFiberCoverage) {
+      setVis(map, FIBER_COV_FILL, true);
+      setVis(map, FIBER_COV_LINE, true);
+      fetchCoverage();
+      map.on("moveend", schedule);
+    } else {
+      setVis(map, FIBER_COV_FILL, false);
+      setVis(map, FIBER_COV_LINE, false);
+      clearCoverage();
+    }
+
+    return () => {
+      if (timer) clearTimeout(timer);
+      abort?.abort();
+      map.off("moveend", schedule);
+    };
+  }, [mapReady, filters.showFiberCoverage]);
 
   useEffect(() => {
     const map = mapRef.current;

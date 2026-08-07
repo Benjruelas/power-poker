@@ -6,6 +6,7 @@
  * - HIFLD Open Electric Substations / Transmission Lines (CONUS)
  * - ERCOTQueue, SPP CSV, MISO JSON, PJM XLSX, CAISO XLSX, NYISO XLSX, ISO-NE HTML
  * - Census county boundaries (CONUS)
+ * - Fiber routes: OpenStreetMap communication/fibre ways + HIFLD USACE IENC cables
  */
 
 import { mkdir, writeFile } from "node:fs/promises";
@@ -29,6 +30,7 @@ import type {
   QueueProjectProperties,
   SubstationProperties,
   TransmissionLineProperties,
+  FiberRouteProperties,
   DataMeta,
 } from "../src/lib/types";
 import {
@@ -1504,6 +1506,248 @@ async function buildCounties(): Promise<{
   };
 }
 
+const HIFLD_SUBMARINE_CABLE_URLS = [
+  "https://services5.arcgis.com/HDRa0B57OVrv2E1q/arcgis/rest/services/Submarine_Cable_Lines_USACE_IENC/FeatureServer/0/query",
+];
+const HIFLD_OVERHEAD_CABLE_URLS = [
+  "https://services5.arcgis.com/HDRa0B57OVrv2E1q/arcgis/rest/services/Overhead_Cables_USACE_IENC/FeatureServer/0/query",
+];
+
+/** Rough CONUS tiles for Overpass (S,W,N,E) — keeps queries under timeout. */
+const OSM_FIBER_BBOXES: [number, number, number, number][] = [
+  [24.5, -125.0, 36.0, -110.0], // West South
+  [36.0, -125.0, 49.5, -110.0], // West North
+  [24.5, -110.0, 36.0, -95.0], // Central South
+  [36.0, -110.0, 49.5, -95.0], // Central North
+  [24.5, -95.0, 36.0, -80.0], // East-Central South
+  [36.0, -95.0, 49.5, -80.0], // East-Central North
+  [24.5, -80.0, 36.0, -66.5], // East South
+  [36.0, -80.0, 49.5, -66.5], // East North
+];
+
+const OVERPASS_ENDPOINTS = [
+  "https://overpass-api.de/api/interpreter",
+  "https://overpass.osm.ch/api/interpreter",
+];
+
+type OsmElement = {
+  type: string;
+  id: number;
+  tags?: Record<string, string>;
+  geometry?: { lat: number; lon: number }[];
+};
+
+function pointInRegionBbox(lon: number, lat: number): boolean {
+  const [w, s, e, n] = REGION_BBOX;
+  return lon >= w && lon <= e && lat >= s && lat <= n;
+}
+
+function lineIntersectsRegion(
+  coords: [number, number][] | [number, number][][]
+): boolean {
+  const flat =
+    Array.isArray(coords[0]?.[0]) && typeof coords[0][0] !== "number"
+      ? (coords as [number, number][][]).flat()
+      : (coords as [number, number][]);
+  return flat.some(([lon, lat]) => pointInRegionBbox(lon, lat));
+}
+
+async function fetchOverpassFiberWays(
+  south: number,
+  west: number,
+  north: number,
+  east: number
+): Promise<OsmElement[]> {
+  const query = `[out:json][timeout:90];
+(
+  way["communication"="line"](${south},${west},${north},${east});
+  way["cables"~"fibre|fiber",i](${south},${west},${north},${east});
+  way["utility"="telecom"](${south},${west},${north},${east});
+);
+out geom;`;
+  let lastErr: unknown;
+  for (const endpoint of OVERPASS_ENDPOINTS) {
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "User-Agent": "Power-Poker/1.0 (research; public data)",
+        },
+        body: `data=${encodeURIComponent(query)}`,
+        signal: AbortSignal.timeout(100_000),
+      });
+      if (!res.ok) {
+        lastErr = new Error(`Overpass ${res.status}`);
+        continue;
+      }
+      const data = (await res.json()) as { elements?: OsmElement[] };
+      return data.elements ?? [];
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  console.warn(
+    `  Overpass failed for [${south},${west},${north},${east}]:`,
+    lastErr instanceof Error ? lastErr.message : lastErr
+  );
+  return [];
+}
+
+async function buildOsmFiberRoutes(): Promise<
+  Feature<LineString, FiberRouteProperties>[]
+> {
+  const byId = new Map<number, Feature<LineString, FiberRouteProperties>>();
+  for (const [south, west, north, east] of OSM_FIBER_BBOXES) {
+    console.log(
+      `  OSM fiber bbox S=${south} W=${west} N=${north} E=${east}…`
+    );
+    const elements = await fetchOverpassFiberWays(south, west, north, east);
+    let added = 0;
+    for (const el of elements) {
+      if (el.type !== "way" || !el.geometry || el.geometry.length < 2) continue;
+      if (byId.has(el.id)) continue;
+      const coords: [number, number][] = el.geometry.map((g) => [g.lon, g.lat]);
+      if (!lineIntersectsRegion(coords)) continue;
+      const tags = el.tags ?? {};
+      const category =
+        tags.communication ||
+        tags.cables ||
+        tags.utility ||
+        tags.telecom ||
+        "osm";
+      byId.set(el.id, {
+        type: "Feature",
+        geometry: { type: "LineString", coordinates: coords },
+        properties: {
+          id: `osm-${el.id}`,
+          name: tags.name || tags.operator || `OSM ${el.id}`,
+          source: "osm",
+          category,
+        },
+      });
+      added += 1;
+    }
+    console.log(`    +${added} ways (unique total ${byId.size})`);
+    await sleep(1500);
+  }
+  return [...byId.values()];
+}
+
+async function buildHifldCableRoutes(
+  urls: string[],
+  source: FiberRouteProperties["source"],
+  where: string
+): Promise<Feature<LineString | MultiLineString, FiberRouteProperties>[]> {
+  try {
+    const raw = await fetchFirstWorking(urls, where, "*", {
+      geometry: REGION_BBOX.join(","),
+      geometryType: "esriGeometryEnvelope",
+      inSR: "4326",
+      spatialRel: "esriSpatialRelIntersects",
+    });
+    const out: Feature<
+      LineString | MultiLineString,
+      FiberRouteProperties
+    >[] = [];
+    for (const f of raw.features ?? []) {
+      if (
+        !f.geometry ||
+        (f.geometry.type !== "LineString" &&
+          f.geometry.type !== "MultiLineString")
+      ) {
+        continue;
+      }
+      const p = (f.properties ?? {}) as Record<string, unknown>;
+      const oid = str(p.OBJECTID ?? p.OBJECTID_1 ?? p.FID, String(out.length));
+      const category = str(p.Category_o ?? p.category ?? p.CATEGORY, "unknown");
+      const name = str(p.Object_Nam ?? p.NAME ?? p.name, `${source}-${oid}`);
+      out.push({
+        type: "Feature",
+        geometry: f.geometry,
+        properties: {
+          id: `${source}-${oid}`,
+          name: name.trim() || `${source}-${oid}`,
+          source,
+          category,
+        },
+      });
+    }
+    return out;
+  } catch (err) {
+    console.warn(
+      `  HIFLD ${source} failed:`,
+      err instanceof Error ? err.message : err
+    );
+    return [];
+  }
+}
+
+/**
+ * Open fiber / telecom cable routes for map overlay.
+ * HIFLD has no national terrestrial ISP fiber — uses USACE IENC cable archives
+ * plus OSM communication/fibre ways. Partial coverage is expected.
+ */
+async function buildFiberRoutes(): Promise<
+  FeatureCollection<
+    LineString | MultiLineString,
+    FiberRouteProperties
+  >
+> {
+  console.log("Building fiber cable routes…");
+  const features: Feature<
+    LineString | MultiLineString,
+    FiberRouteProperties
+  >[] = [];
+
+  // Prefer telephone-classified cables; also keep all submarine lines (telecom + other)
+  const submarine = await buildHifldCableRoutes(
+    HIFLD_SUBMARINE_CABLE_URLS,
+    "hifld-usace-submarine",
+    "1=1"
+  );
+  console.log(`  HIFLD submarine cables: ${submarine.length}`);
+  features.push(...submarine);
+
+  const overheadTel = await buildHifldCableRoutes(
+    HIFLD_OVERHEAD_CABLE_URLS,
+    "hifld-usace-overhead",
+    "Category_o='Telephone'"
+  );
+  console.log(`  HIFLD overhead telephone: ${overheadTel.length}`);
+  features.push(...overheadTel);
+
+  try {
+    const osm = await buildOsmFiberRoutes();
+    console.log(`  OSM fiber/telecom ways: ${osm.length}`);
+    features.push(...osm);
+  } catch (err) {
+    console.warn(
+      "  OSM fiber fetch failed (continuing with HIFLD only):",
+      err instanceof Error ? err.message : err
+    );
+  }
+
+  // Light simplify to shrink payload
+  const simplified: Feature<
+    LineString | MultiLineString,
+    FiberRouteProperties
+  >[] = [];
+  for (const f of features) {
+    try {
+      const s = turf.simplify(f, { tolerance: 0.0002, highQuality: false });
+      simplified.push(
+        s as Feature<LineString | MultiLineString, FiberRouteProperties>
+      );
+    } catch {
+      simplified.push(f);
+    }
+  }
+
+  console.log(`Fiber routes total: ${simplified.length}`);
+  return { type: "FeatureCollection", features: simplified };
+}
+
 async function main() {
   console.log("=== Power Poker data build (all major ISOs, CONUS) ===");
   await mkdir(OUT_DIR, { recursive: true });
@@ -1511,6 +1755,7 @@ async function main() {
 
   const substations = await buildSubstations();
   const lines = await buildLines();
+  const fiberRoutes = await buildFiberRoutes();
   const { counties, centroids } = await buildCounties();
   const projects = await buildProjects(substations, centroids);
   enrichSubstations(substations, projects);
@@ -1529,6 +1774,7 @@ async function main() {
     projectCount: projects.features.length,
     lineCount: lines.features.length,
     countyCount: counties.features.length,
+    fiberRouteCount: fiberRoutes.features.length,
     notes: [
       "Substations & lines: HIFLD Open (public domain), contiguous US.",
       "Queues: ERCOTQueue, SPP GI CSV, MISO getprojects, PJM ExportToXls, CAISO PublicQueueReport, NYISO Interconnection Queue, ISO-NE IRTT public queue.",
@@ -1538,6 +1784,8 @@ async function main() {
       "Project coordinates: POI-name matched to HIFLD substations when possible; otherwise county centroid.",
       "Opportunity score = voltage (0–35) + crowding (0–35) + BESS signal (0–20) + connectivity (0–10).",
       `Five-mile radius used for proximity metrics (~${FIVE_MILES_KM.toFixed(2)} km). One-mile parcel ring shown in UI (~${ONE_MILE_KM.toFixed(2)} km).`,
+      "Fiber coverage overlay: FCC BDC via Esri Living Atlas (live API).",
+      "Fiber routes: OSM communication/fibre ways + HIFLD USACE IENC submarine/overhead telephone cables (partial; no national terrestrial ISP routes in HIFLD Open).",
     ],
   };
 
@@ -1551,6 +1799,10 @@ async function main() {
     JSON.stringify(substations)
   );
   await writeFile(path.join(OUT_DIR, "lines.geojson"), JSON.stringify(lines));
+  await writeFile(
+    path.join(OUT_DIR, "fiber-routes.geojson"),
+    JSON.stringify(fiberRoutes)
+  );
   await writeFile(
     path.join(OUT_DIR, "projects.geojson"),
     JSON.stringify(projectsOut)
@@ -1575,6 +1827,7 @@ async function main() {
   console.log("Wrote:");
   console.log(`  substations: ${meta.substationCount}`);
   console.log(`  lines:       ${meta.lineCount}`);
+  console.log(`  fiber routes:${meta.fiberRouteCount}`);
   console.log(`  projects:    ${meta.projectCount}`);
   console.log(`  counties:    ${meta.countyCount}`);
   console.log("Done.");

@@ -13,6 +13,9 @@
     "Counties: U.S. Census Bureau cartographic boundaries (CONUS).",
     "Project coordinates: POI-name matched to HIFLD substations when possible; otherwise county centroid.",
     "Opportunity score = voltage (0–35) + crowding (0–35) + BESS signal (0–20) + connectivity (0–10).",
-    "Five-mile radius used for proximity metrics (~8.05 km). One-mile parcel ring shown in UI (~1.61 km)."
-  ]
+    "Five-mile radius used for proximity metrics (~8.05 km). One-mile parcel ring shown in UI (~1.61 km).",
+    "Fiber coverage overlay: FCC BDC via Esri Living Atlas (live API).",
+    "Fiber routes: OSM communication/fibre ways + HIFLD USACE IENC submarine/overhead telephone cables (partial; no national terrestrial ISP routes in HIFLD Open)."
+  ],
+  "fiberRouteCount": 696
 }

@@ -101,6 +101,8 @@ export function FilterSidebar({
                 ["showCounties", "County boundaries"],
                 ["showParcels", "Parcels (zoom 15+)"],
                 ["showFloodZones", "Flood zones"],
+                ["showFiberCoverage", "Fiber coverage (FCC)"],
+                ["showFiberRoutes", "Fiber cable routes"],
                 ["satellite", "Satellite basemap"],
               ] as const
             ).map(([key, label]) => (

@@ -27,6 +27,8 @@ For parcel outlines, copy [`.env.example`](.env.example) to `.env.local` and set
 | NYISO | NYISO-Interconnection-Queue.xlsx |
 | ISO-NE | IRTT public queue HTML |
 | Counties | Census 20m GeoJSON (CONUS) |
+| Fiber coverage | FCC Broadband Data Collection via Esri Living Atlas (live overlay) |
+| Fiber cable routes | OpenStreetMap communication/fibre ways + HIFLD USACE IENC submarine / overhead telephone cables |
 
 Non-ISO West / Southeast utility queues are out of scope.
 

@@ -94,6 +94,26 @@ export function MapLegend({
         <p className="text-[10px] leading-snug text-slate-500">
           Parcel outlines appear at zoom 15+
         </p>
+        <div className="mt-3 mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-500">
+          <span
+            className="inline-block size-2.5 shrink-0 rounded-[2px] border border-[#0f766e] bg-[#0d9488]/40"
+            aria-hidden
+          />
+          Fiber coverage
+        </div>
+        <p className="text-[10px] leading-snug text-slate-500">
+          FCC BDC areas with fiber providers (toggle in Filters)
+        </p>
+        <div className="mt-3 mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-500">
+          <span
+            className="inline-block h-0.5 w-3 shrink-0 rounded bg-[#0e7490]"
+            aria-hidden
+          />
+          Fiber cable routes
+        </div>
+        <p className="text-[10px] leading-snug text-slate-500">
+          OSM + HIFLD USACE open cable lines (partial)
+        </p>
         <p className="mt-2 text-[10px] leading-snug text-slate-500">
           Rings: 1 mi parcel search · 5 mi queue proximity
         </p>
