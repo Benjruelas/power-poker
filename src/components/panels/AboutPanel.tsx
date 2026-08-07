@@ -91,6 +91,10 @@ export function AboutPanel({ meta }: { meta: DataMeta | null }) {
             <li>NYISO Interconnection Queue workbook</li>
             <li>ISO-NE IRTT public queue</li>
             <li>US Census county boundaries — CONUS</li>
+            <li>
+              FCC Broadband Data Collection (fiber service areas) via Esri
+              Living Atlas
+            </li>
           </ul>
         </section>
 

@@ -103,7 +103,23 @@ export interface DataMeta {
   projectCount: number;
   lineCount: number;
   countyCount: number;
+  fiberRouteCount?: number;
   notes: string[];
+}
+
+export interface FiberRouteProperties {
+  id: string;
+  name: string;
+  source:
+    | "osm"
+    | "hifld-usace-submarine"
+    | "hifld-usace-overhead"
+    | "carrier-crown-castle"
+    | "carrier-dfi"
+    | "carrier-fiberlight"
+    | "carrier-windstream"
+    | "carrier-zayo";
+  category: string;
 }
 
 export interface AppFilters {
@@ -122,6 +138,7 @@ export interface AppFilters {
   showCounties: boolean;
   showParcels: boolean;
   showFloodZones: boolean;
+  showFiberCoverage: boolean;
   satellite: boolean;
 }
 
@@ -187,6 +204,7 @@ export const DEFAULT_FILTERS: AppFilters = {
   showCounties: true,
   showParcels: true,
   showFloodZones: false,
+  showFiberCoverage: false,
   satellite: false,
 };
 

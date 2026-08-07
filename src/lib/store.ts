@@ -291,10 +291,16 @@ export const useAppStore = create<AppState>()(
       }),
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<AppState>;
+        const {
+          showFiberRoutes: _removedFiberRoutes,
+          ...persistedFilters
+        } = (p.filters ?? {}) as Partial<AppState["filters"]> & {
+          showFiberRoutes?: boolean;
+        };
         return {
           ...current,
           ...p,
-          filters: { ...DEFAULT_FILTERS, ...(p.filters ?? {}) },
+          filters: { ...DEFAULT_FILTERS, ...persistedFilters },
           parcelLists: p.parcelLists ?? current.parcelLists,
           activeParcelListId:
             p.activeParcelListId ?? current.activeParcelListId,

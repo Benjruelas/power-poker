@@ -101,15 +101,23 @@ export function FilterSidebar({
                 ["showCounties", "County boundaries"],
                 ["showParcels", "Parcels (zoom 15+)"],
                 ["showFloodZones", "Flood zones"],
+                ["showFiberCoverage", "Fiber service areas (FCC)"],
                 ["satellite", "Satellite basemap"],
               ] as const
             ).map(([key, label]) => (
-              <label key={key} className="flex items-center gap-2 text-sm">
-                <Checkbox
-                  checked={filters[key]}
-                  onCheckedChange={(v) => setFilters({ [key]: Boolean(v) })}
-                />
-                {label}
+              <label key={key} className="flex flex-col gap-1 text-sm">
+                <span className="flex items-center gap-2">
+                  <Checkbox
+                    checked={filters[key]}
+                    onCheckedChange={(v) => setFilters({ [key]: Boolean(v) })}
+                  />
+                  {label}
+                </span>
+                {key === "showFiberCoverage" && filters.showFiberCoverage && (
+                  <span className="pl-6 text-[11px] leading-snug text-muted-foreground">
+                    Teal areas = census blocks with reported fiber internet.
+                  </span>
+                )}
               </label>
             ))}
           </section>
