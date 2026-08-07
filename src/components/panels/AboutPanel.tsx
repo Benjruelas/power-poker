@@ -69,9 +69,6 @@ export function AboutPanel({ meta }: { meta: DataMeta | null }) {
                 {meta.substationCount.toLocaleString()} substations ·{" "}
                 {meta.projectCount.toLocaleString()} projects ·{" "}
                 {meta.lineCount.toLocaleString()} lines
-                {meta.fiberRouteCount != null
-                  ? ` · ${meta.fiberRouteCount.toLocaleString()} fiber routes`
-                  : ""}
               </li>
             </ul>
           ) : (
@@ -95,12 +92,8 @@ export function AboutPanel({ meta }: { meta: DataMeta | null }) {
             <li>ISO-NE IRTT public queue</li>
             <li>US Census county boundaries — CONUS</li>
             <li>
-              FCC Broadband Data Collection (fiber coverage) via Esri Living
-              Atlas
-            </li>
-            <li>
-              Fiber cable routes — OpenStreetMap + HIFLD USACE IENC submarine /
-              overhead telephone cables
+              FCC Broadband Data Collection (fiber service areas) via Esri
+              Living Atlas
             </li>
           </ul>
         </section>

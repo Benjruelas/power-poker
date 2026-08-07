@@ -110,7 +110,15 @@ export interface DataMeta {
 export interface FiberRouteProperties {
   id: string;
   name: string;
-  source: "osm" | "hifld-usace-submarine" | "hifld-usace-overhead";
+  source:
+    | "osm"
+    | "hifld-usace-submarine"
+    | "hifld-usace-overhead"
+    | "carrier-crown-castle"
+    | "carrier-dfi"
+    | "carrier-fiberlight"
+    | "carrier-windstream"
+    | "carrier-zayo";
   category: string;
 }
 
@@ -131,7 +139,6 @@ export interface AppFilters {
   showParcels: boolean;
   showFloodZones: boolean;
   showFiberCoverage: boolean;
-  showFiberRoutes: boolean;
   satellite: boolean;
 }
 
@@ -198,7 +205,6 @@ export const DEFAULT_FILTERS: AppFilters = {
   showParcels: true,
   showFloodZones: false,
   showFiberCoverage: false,
-  showFiberRoutes: false,
   satellite: false,
 };
 

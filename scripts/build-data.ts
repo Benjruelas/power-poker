@@ -1561,8 +1561,13 @@ async function fetchOverpassFiberWays(
   const query = `[out:json][timeout:90];
 (
   way["communication"="line"](${south},${west},${north},${east});
+  way["telecom"="line"](${south},${west},${north},${east});
+  way["telecom"="cable"](${south},${west},${north},${east});
+  way["telecom"="path"](${south},${west},${north},${east});
+  way["telecom:medium"~"fibre|fiber",i](${south},${west},${north},${east});
   way["cables"~"fibre|fiber",i](${south},${west},${north},${east});
   way["utility"="telecom"](${south},${west},${north},${east});
+  way["seamark:cable_submarine:category"~"fibre|fiber|telephone",i](${south},${west},${north},${east});
 );
 out geom;`;
   let lastErr: unknown;
@@ -1611,10 +1616,11 @@ async function buildOsmFiberRoutes(): Promise<
       if (!lineIntersectsRegion(coords)) continue;
       const tags = el.tags ?? {};
       const category =
+        tags["telecom:medium"] ||
+        tags.telecom ||
         tags.communication ||
         tags.cables ||
         tags.utility ||
-        tags.telecom ||
         "osm";
       byId.set(el.id, {
         type: "Feature",
@@ -1661,6 +1667,14 @@ async function buildHifldCableRoutes(
       const p = (f.properties ?? {}) as Record<string, unknown>;
       const oid = str(p.OBJECTID ?? p.OBJECTID_1 ?? p.FID, String(out.length));
       const category = str(p.Category_o ?? p.category ?? p.CATEGORY, "unknown");
+      const catLower = category.trim().toLowerCase();
+      if (
+        catLower === "powerline" ||
+        catLower === "transmission line" ||
+        catLower === "power"
+      ) {
+        continue;
+      }
       const name = str(p.Object_Nam ?? p.NAME ?? p.name, `${source}-${oid}`);
       out.push({
         type: "Feature",
@@ -1684,9 +1698,8 @@ async function buildHifldCableRoutes(
 }
 
 /**
- * Open fiber / telecom cable routes for map overlay.
- * HIFLD has no national terrestrial ISP fiber — uses USACE IENC cable archives
- * plus OSM communication/fibre ways. Partial coverage is expected.
+ * Fiber / telecom cable routes for map overlay.
+ * Delegates to scripts/build-fiber-routes.ts (carrier snapshots + HIFLD [+ OSM]).
  */
 async function buildFiberRoutes(): Promise<
   FeatureCollection<
@@ -1694,58 +1707,31 @@ async function buildFiberRoutes(): Promise<
     FiberRouteProperties
   >
 > {
-  console.log("Building fiber cable routes…");
-  const features: Feature<
-    LineString | MultiLineString,
-    FiberRouteProperties
-  >[] = [];
-
-  // Prefer telephone-classified cables; also keep all submarine lines (telecom + other)
-  const submarine = await buildHifldCableRoutes(
-    HIFLD_SUBMARINE_CABLE_URLS,
-    "hifld-usace-submarine",
-    "1=1"
-  );
-  console.log(`  HIFLD submarine cables: ${submarine.length}`);
-  features.push(...submarine);
-
-  const overheadTel = await buildHifldCableRoutes(
-    HIFLD_OVERHEAD_CABLE_URLS,
-    "hifld-usace-overhead",
-    "Category_o='Telephone'"
-  );
-  console.log(`  HIFLD overhead telephone: ${overheadTel.length}`);
-  features.push(...overheadTel);
-
-  try {
-    const osm = await buildOsmFiberRoutes();
-    console.log(`  OSM fiber/telecom ways: ${osm.length}`);
-    features.push(...osm);
-  } catch (err) {
-    console.warn(
-      "  OSM fiber fetch failed (continuing with HIFLD only):",
-      err instanceof Error ? err.message : err
+  console.log("Building fiber cable routes (scripts/build-fiber-routes.ts)…");
+  const { spawn } = await import("node:child_process");
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(
+      "npx",
+      ["tsx", "scripts/build-fiber-routes.ts", "--skip-osm"],
+      {
+        cwd: path.resolve(__dirname, ".."),
+        stdio: "inherit",
+        shell: process.platform === "win32",
+      }
     );
-  }
-
-  // Light simplify to shrink payload
-  const simplified: Feature<
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`fiber-routes build exited ${code}`));
+    });
+  });
+  const raw = await readFile(path.join(OUT_DIR, "fiber-routes.geojson"), "utf8");
+  const fc = JSON.parse(raw) as FeatureCollection<
     LineString | MultiLineString,
     FiberRouteProperties
-  >[] = [];
-  for (const f of features) {
-    try {
-      const s = turf.simplify(f, { tolerance: 0.0002, highQuality: false });
-      simplified.push(
-        s as Feature<LineString | MultiLineString, FiberRouteProperties>
-      );
-    } catch {
-      simplified.push(f);
-    }
-  }
-
-  console.log(`Fiber routes total: ${simplified.length}`);
-  return { type: "FeatureCollection", features: simplified };
+  >;
+  console.log(`Fiber routes total: ${fc.features.length}`);
+  return fc;
 }
 
 async function main() {
@@ -1785,7 +1771,7 @@ async function main() {
       "Opportunity score = voltage (0–35) + crowding (0–35) + BESS signal (0–20) + connectivity (0–10).",
       `Five-mile radius used for proximity metrics (~${FIVE_MILES_KM.toFixed(2)} km). One-mile parcel ring shown in UI (~${ONE_MILE_KM.toFixed(2)} km).`,
       "Fiber coverage overlay: FCC BDC via Esri Living Atlas (live API).",
-      "Fiber routes: OSM communication/fibre ways + HIFLD USACE IENC submarine/overhead telephone cables (partial; no national terrestrial ISP routes in HIFLD Open).",
+      "Fiber routes: public carrier snapshots (Crown Castle / Fiberlight / Zayo / …) + HIFLD USACE IENC cables (partial; run `npm run data:fiber` without --skip-osm to also pull OSM).",
     ],
   };
 

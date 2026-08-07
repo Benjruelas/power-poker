@@ -25,7 +25,6 @@ import {
   type SelectedParcel,
 } from "@/lib/landrecords/parcelPropertyMap";
 import type {
-  FiberRouteProperties,
   QueueProjectProperties,
   SubstationProperties,
   TransmissionLineProperties,
@@ -91,11 +90,12 @@ function applyParcelBasemapPaint(map: maplibregl.Map, satellite: boolean) {
   if (!map.getLayer(PARCEL_FILL) || !map.getLayer(PARCEL_LINE)) return;
   if (satellite) {
     map.setPaintProperty(PARCEL_FILL, "fill-color", "#38bdf8");
+    // Unselected: no fill — only the selected parcel gets a cyan wash
     map.setPaintProperty(PARCEL_FILL, "fill-opacity", [
       "case",
       FS_CLICKED,
       0.4,
-      0.1,
+      0,
     ]);
     map.setPaintProperty(PARCEL_LINE, "line-color", "#f8fafc");
     map.setPaintProperty(PARCEL_LINE, "line-width", [
@@ -159,17 +159,24 @@ function setParcelClickedState(
   }
 }
 
+/** Wipe all parcel feature-state — per-id clear fails when the old tile unloaded. */
+function clearAllParcelHighlights(map: maplibregl.Map) {
+  try {
+    map.removeFeatureState({
+      source: PARCEL_SOURCE,
+      sourceLayer: PARCEL_SOURCE_LAYER,
+    });
+  } catch {
+    /* source not ready */
+  }
+}
+
 function applyParcelHighlight(
   map: maplibregl.Map,
   clickedFeatureIdRef: { current: string | null },
   featureId: string | null
 ) {
-  if (
-    clickedFeatureIdRef.current &&
-    clickedFeatureIdRef.current !== featureId
-  ) {
-    setParcelClickedState(map, clickedFeatureIdRef.current, false);
-  }
+  clearAllParcelHighlights(map);
   clickedFeatureIdRef.current = featureId;
   if (featureId) setParcelClickedState(map, featureId, true);
 }
@@ -229,10 +236,6 @@ type ProjFC = FeatureCollection<Point, QueueProjectProperties>;
 type LinesFC = FeatureCollection<
   GeoJSON.LineString | GeoJSON.MultiLineString,
   TransmissionLineProperties
->;
-type FiberRoutesFC = FeatureCollection<
-  GeoJSON.LineString | GeoJSON.MultiLineString,
-  FiberRouteProperties
 >;
 
 type DrawnSub = {
@@ -302,9 +305,6 @@ const FIBER_COV_SOURCE = "fiber-coverage";
 const FIBER_COV_FILL = "fiber-coverage-fill";
 const FIBER_COV_LINE = "fiber-coverage-line";
 const FIBER_COV_ATTR = "FCC Broadband Data Collection via Esri Living Atlas";
-
-const FIBER_ROUTES_SOURCE = "fiber-routes";
-const FIBER_ROUTES_LAYER = "fiber-routes-layer";
 
 function floodTileUrls(): string[] {
   const origin =
@@ -383,12 +383,25 @@ function ensureBaseLayers(map: maplibregl.Map) {
   }
 
   // FCC BDC fiber availability polygons (bbox-fetched via /api/fiber-coverage)
+  const fiberCovFillOpacity: maplibregl.ExpressionSpecification = [
+    "interpolate",
+    ["linear"],
+    ["coalesce", ["get", "uniqueProvidersFiber"], 1],
+    1,
+    0.28,
+    5,
+    0.4,
+    15,
+    0.55,
+  ];
   if (!map.getSource(FIBER_COV_SOURCE)) {
     map.addSource(FIBER_COV_SOURCE, {
       type: "geojson",
       data: emptyFC(),
       attribution: FIBER_COV_ATTR,
     });
+  }
+  if (!map.getLayer(FIBER_COV_FILL)) {
     map.addLayer({
       id: FIBER_COV_FILL,
       type: "fill",
@@ -396,19 +409,13 @@ function ensureBaseLayers(map: maplibregl.Map) {
       layout: { visibility: "none" },
       paint: {
         "fill-color": "#0d9488",
-        "fill-opacity": [
-          "interpolate",
-          ["linear"],
-          ["coalesce", ["get", "uniqueProvidersFiber"], 1],
-          1,
-          0.12,
-          5,
-          0.22,
-          15,
-          0.35,
-        ],
+        "fill-opacity": fiberCovFillOpacity,
       },
     });
+  } else {
+    map.setPaintProperty(FIBER_COV_FILL, "fill-opacity", fiberCovFillOpacity);
+  }
+  if (!map.getLayer(FIBER_COV_LINE)) {
     map.addLayer({
       id: FIBER_COV_LINE,
       type: "line",
@@ -416,10 +423,13 @@ function ensureBaseLayers(map: maplibregl.Map) {
       layout: { visibility: "none" },
       paint: {
         "line-color": "#0f766e",
-        "line-width": 0.6,
-        "line-opacity": 0.45,
+        "line-width": 1,
+        "line-opacity": 0.65,
       },
     });
+  } else {
+    map.setPaintProperty(FIBER_COV_LINE, "line-width", 1);
+    map.setPaintProperty(FIBER_COV_LINE, "line-opacity", 0.65);
   }
 
   if (!map.getSource("counties")) {
@@ -459,22 +469,7 @@ function ensureBaseLayers(map: maplibregl.Map) {
     });
   }
 
-  if (!map.getSource(FIBER_ROUTES_SOURCE)) {
-    map.addSource(FIBER_ROUTES_SOURCE, { type: "geojson", data: emptyFC() });
-    map.addLayer({
-      id: FIBER_ROUTES_LAYER,
-      type: "line",
-      source: FIBER_ROUTES_SOURCE,
-      layout: { visibility: "none" },
-      paint: {
-        "line-color": "#0e7490",
-        "line-width": 1.75,
-        "line-opacity": 0.75,
-      },
-    });
-  }
-
-  // LandRecords parcels (above counties/lines, below selection rings)
+  // LandRecords parcels (above counties/lines, below fiber routes / rings)
   if (!map.getSource(PARCEL_SOURCE)) {
     const origin =
       typeof window !== "undefined" ? window.location.origin : "";
@@ -576,7 +571,6 @@ interface BessMapProps {
   substations: SubsFC | null;
   projects: ProjFC | null;
   lines: LinesFC | null;
-  fiberRoutes: FiberRoutesFC | null;
   counties: FeatureCollection | null;
 }
 
@@ -584,7 +578,6 @@ export function BessMap({
   substations,
   projects,
   lines,
-  fiberRoutes,
   counties,
 }: BessMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1096,7 +1089,6 @@ export function BessMap({
     setVis(map, "counties-fill", filters.showCounties);
     setVis(map, "counties-line", filters.showCounties);
     setVis(map, "lines-layer", filters.showLines);
-    setVis(map, FIBER_ROUTES_LAYER, filters.showFiberRoutes);
     applyParcelBasemapPaint(map, filters.satellite);
     setParcelLayerVisibility(map, filters.showParcels, filters.satellite);
 
@@ -1132,7 +1124,6 @@ export function BessMap({
     filters.showFiberCoverage,
     filters.showCounties,
     filters.showLines,
-    filters.showFiberRoutes,
     filters.showParcels,
     filters.satellite,
     filters.showSubstations,
@@ -1162,30 +1153,6 @@ export function BessMap({
     });
     setVis(map, "lines-layer", true);
   }, [mapReady, filters.showLines, lines]);
-
-  // Lazy-load fiber cable routes when toggled on
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapReady || !filters.showFiberRoutes || !fiberRoutes) return;
-    const src = map.getSource(FIBER_ROUTES_SOURCE) as
-      | maplibregl.GeoJSONSource
-      | undefined;
-    if (!src) return;
-    src.setData({
-      type: "FeatureCollection",
-      features: fiberRoutes.features.map((f) => ({
-        type: "Feature" as const,
-        geometry: f.geometry,
-        properties: {
-          id: f.properties.id,
-          name: f.properties.name,
-          source: f.properties.source,
-          category: f.properties.category,
-        },
-      })),
-    });
-    setVis(map, FIBER_ROUTES_LAYER, true);
-  }, [mapReady, filters.showFiberRoutes, fiberRoutes]);
 
   // FCC fiber coverage — refetch on pan/zoom when layer is on
   useEffect(() => {
@@ -1226,6 +1193,10 @@ export function BessMap({
         .then((r) => (r.ok ? r.json() : emptyFC()))
         .then((fc: FeatureCollection) => {
           if (mySeq !== seq) return;
+          if (!filtersRef.current.showFiberCoverage) {
+            clearCoverage();
+            return;
+          }
           const src = map.getSource(FIBER_COV_SOURCE) as
             | maplibregl.GeoJSONSource
             | undefined;

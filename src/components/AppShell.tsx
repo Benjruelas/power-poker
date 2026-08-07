@@ -17,7 +17,6 @@ import { filterSubstations } from "@/lib/geo";
 import { useAppStore, type PanelTab } from "@/lib/store";
 import type {
   DataMeta,
-  FiberRouteProperties,
   QueueProjectProperties,
   SubstationProperties,
   TransmissionLineProperties,
@@ -47,10 +46,6 @@ export function AppShell() {
   const [lines, setLines] = useState<FeatureCollection<
     GeoJSON.LineString | GeoJSON.MultiLineString,
     TransmissionLineProperties
-  > | null>(null);
-  const [fiberRoutes, setFiberRoutes] = useState<FeatureCollection<
-    GeoJSON.LineString | GeoJSON.MultiLineString,
-    FiberRouteProperties
   > | null>(null);
   const [counties, setCounties] = useState<FeatureCollection | null>(null);
   const [countyList, setCountyList] = useState<string[]>([]);
@@ -114,25 +109,6 @@ export function AppShell() {
       cancelled = true;
     };
   }, []);
-
-  // Lazy-load fiber routes only when the layer is enabled
-  useEffect(() => {
-    if (!filters.showFiberRoutes || fiberRoutes) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch("/data/fiber-routes.geojson");
-        if (!res.ok) return;
-        const data = await res.json();
-        if (!cancelled) setFiberRoutes(data);
-      } catch {
-        /* optional layer — ignore missing snapshot */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [filters.showFiberRoutes, fiberRoutes]);
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -198,7 +174,6 @@ export function AppShell() {
               substations={substations}
               projects={projects}
               lines={lines}
-              fiberRoutes={fiberRoutes}
               counties={counties}
             />
           )}
