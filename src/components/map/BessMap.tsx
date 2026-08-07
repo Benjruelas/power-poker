@@ -258,7 +258,166 @@ type DrawnProj = {
   fuelDisplay: string;
   capacityMw: number;
   funnelStage: string;
+  geometryPrecision: "substation" | "county";
 };
+
+/** Individual substations begin to appear; fully opaque when "over" a site. */
+const DOT_REVEAL_START = 6;
+const DOT_OPAQUE_ZOOM = 11;
+/** County-centroid projects only drawn at/above this zoom. */
+const PROJECT_COUNTY_ZOOM = 8;
+
+const HEAT_SOURCE = "substation-heat";
+const HEAT_LAYER = "substation-heat";
+
+function clamp01(t: number): number {
+  return t < 0 ? 0 : t > 1 ? 1 : t;
+}
+
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
+}
+
+function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  const h = hex.replace("#", "");
+  return {
+    r: parseInt(h.slice(0, 2), 16),
+    g: parseInt(h.slice(2, 4), 16),
+    b: parseInt(h.slice(4, 6), 16),
+  };
+}
+
+function rgba(hex: string, a: number): string {
+  const { r, g, b } = hexToRgb(hex);
+  return `rgba(${r},${g},${b},${a})`;
+}
+
+/** Discrete substations: ghostly until zoomed in over them. */
+function subStyleForZoom(z: number): {
+  radius: number;
+  alpha: number;
+  strokeAlpha: number;
+  interactive: boolean;
+} {
+  const t = clamp01((z - DOT_REVEAL_START) / (DOT_OPAQUE_ZOOM - DOT_REVEAL_START));
+  // Stay see-through for most of the ramp; snap toward solid near opaque zoom
+  const alpha =
+    t <= 0
+      ? 0
+      : t < 0.75
+        ? lerp(0.12, 0.45, t / 0.75)
+        : lerp(0.45, 1, (t - 0.75) / 0.25);
+  return {
+    radius: lerp(2.2, 5.5, t),
+    alpha,
+    strokeAlpha: t < 0.75 ? 0 : lerp(0, 0.9, (t - 0.75) / 0.25),
+    interactive: alpha >= 0.2,
+  };
+}
+
+function projStyleForZoom(z: number): {
+  mode: "hidden" | "individual";
+  radius: number;
+  alpha: number;
+  strokeAlpha: number;
+  allowCounty: boolean;
+  interactive: boolean;
+} {
+  if (z < DOT_REVEAL_START) {
+    return {
+      mode: "hidden",
+      radius: 3.5,
+      alpha: 0,
+      strokeAlpha: 0,
+      allowCounty: false,
+      interactive: false,
+    };
+  }
+  const t = clamp01((z - 7) / (DOT_OPAQUE_ZOOM - 7));
+  const alpha =
+    t < 0.7 ? lerp(0.1, 0.4, t / 0.7) : lerp(0.4, 1, (t - 0.7) / 0.3);
+  return {
+    mode: "individual",
+    radius: lerp(2, 3.5, t),
+    alpha,
+    strokeAlpha: t < 0.7 ? 0 : lerp(0, 0.85, (t - 0.7) / 0.3),
+    allowCounty: z >= PROJECT_COUNTY_ZOOM,
+    interactive: alpha >= 0.2,
+  };
+}
+
+function heatFeaturesFromSubs(
+  subs: DrawnSub[]
+): GeoJSON.FeatureCollection<GeoJSON.Point> {
+  const features: GeoJSON.Feature<GeoJSON.Point>[] = [];
+  for (let i = 0; i < subs.length; i++) {
+    const s = subs[i];
+    features.push({
+      type: "Feature",
+      properties: { score: s.score },
+      geometry: { type: "Point", coordinates: [s.lng, s.lat] },
+    });
+  }
+  return { type: "FeatureCollection", features };
+}
+
+/** Hit-test only when dots are revealed enough to interact (not the haze). */
+function hitTestOverlay(
+  map: maplibregl.Map,
+  x: number,
+  y: number,
+  subs: DrawnSub[],
+  projs: DrawnProj[]
+): {
+  sub: DrawnSub | null;
+  subDist: number;
+  proj: DrawnProj | null;
+  projDist: number;
+} {
+  const z = map.getZoom();
+  const subStyle = subStyleForZoom(z);
+  const projStyle = projStyleForZoom(z);
+
+  let bestSub: DrawnSub | null = null;
+  let bestSubDist = Infinity;
+  if (subStyle.interactive) {
+    const hitR = Math.max(subStyle.radius + 4.5, 10);
+    for (let i = 0; i < subs.length; i++) {
+      const s = subs[i];
+      const pt = map.project([s.lng, s.lat]);
+      const d = Math.hypot(pt.x - x, pt.y - y);
+      if (d <= hitR && d < bestSubDist) {
+        bestSubDist = d;
+        bestSub = s;
+      }
+    }
+  }
+
+  let bestProj: DrawnProj | null = null;
+  let bestProjDist = Infinity;
+  if (projStyle.mode !== "hidden" && projStyle.interactive) {
+    const hitR = Math.max(projStyle.radius + 4.5, 8);
+    for (let i = 0; i < projs.length; i++) {
+      const p = projs[i];
+      if (!projStyle.allowCounty && p.geometryPrecision !== "substation") {
+        continue;
+      }
+      const pt = map.project([p.lng, p.lat]);
+      const d = Math.hypot(pt.x - x, pt.y - y);
+      if (d <= hitR && d < bestProjDist) {
+        bestProjDist = d;
+        bestProj = p;
+      }
+    }
+  }
+
+  return {
+    sub: bestSub,
+    subDist: bestSubDist,
+    proj: bestProj,
+    projDist: bestProjDist,
+  };
+}
 
 /** Basemap without labels — labels render in a top overlay above substations. */
 const OSM_TILES = [
@@ -286,6 +445,36 @@ const SAT_ATTR = "Esri, Maxar, Earthstar Geographics";
 
 const LABELS_SOURCE = "place-labels";
 const LABELS_LAYER = "place-labels";
+
+function buildLabelsStyle(satellite: boolean): maplibregl.StyleSpecification {
+  return {
+    version: 8,
+    sources: {
+      [LABELS_SOURCE]: {
+        type: "raster",
+        tiles: satellite ? SAT_LABEL_TILES : STREET_LABEL_TILES,
+        tileSize: 256,
+        attribution: "CARTO",
+      },
+    },
+    layers: [
+      {
+        id: "labels-bg",
+        type: "background",
+        paint: {
+          "background-color": "rgba(0,0,0,0)",
+          "background-opacity": 0,
+        },
+      },
+      {
+        id: LABELS_LAYER,
+        type: "raster",
+        source: LABELS_SOURCE,
+        paint: { "raster-opacity": 1 },
+      },
+    ],
+  };
+}
 
 function applyLabelTiles(map: maplibregl.Map, satellite: boolean) {
   const src = map.getSource(LABELS_SOURCE) as
@@ -432,6 +621,89 @@ function ensureBaseLayers(map: maplibregl.Map) {
     map.setPaintProperty(FIBER_COV_LINE, "line-opacity", 0.65);
   }
 
+  // Opportunity density — below counties so state/county lines stay readable
+  if (!map.getSource(HEAT_SOURCE)) {
+    map.addSource(HEAT_SOURCE, { type: "geojson", data: emptyFC() });
+  }
+  if (!map.getLayer(HEAT_LAYER)) {
+    map.addLayer({
+      id: HEAT_LAYER,
+      type: "heatmap",
+      source: HEAT_SOURCE,
+      maxzoom: 10,
+      paint: {
+        "heatmap-weight": [
+          "interpolate",
+          ["linear"],
+          ["get", "score"],
+          0,
+          0.12,
+          40,
+          0.3,
+          70,
+          0.65,
+          100,
+          1,
+        ],
+        "heatmap-intensity": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          2,
+          0.3,
+          5,
+          0.45,
+          8,
+          0.2,
+        ],
+        "heatmap-radius": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          2,
+          12,
+          5,
+          18,
+          8,
+          26,
+        ],
+        // Very transparent at national zoom; gone by ~z9 as dots take over
+        "heatmap-opacity": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          2,
+          0.18,
+          4,
+          0.16,
+          6,
+          0.1,
+          8,
+          0.04,
+          9,
+          0,
+        ],
+        "heatmap-color": [
+          "interpolate",
+          ["linear"],
+          ["heatmap-density"],
+          0,
+          "rgba(0,0,0,0)",
+          0.2,
+          "rgba(239,68,68,0.25)",
+          0.4,
+          "rgba(245,158,11,0.3)",
+          0.6,
+          "rgba(132,204,22,0.35)",
+          0.8,
+          "rgba(34,197,94,0.4)",
+          1,
+          "rgba(13,148,136,0.45)",
+        ],
+      },
+    });
+  }
+
   if (!map.getSource("counties")) {
     map.addSource("counties", { type: "geojson", data: emptyFC() });
     map.addLayer({
@@ -454,19 +726,56 @@ function ensureBaseLayers(map: maplibregl.Map) {
     });
   }
 
+  // State boundaries — white, above county grey so they read clearly
+  if (!map.getSource("states")) {
+    map.addSource("states", { type: "geojson", data: emptyFC() });
+  }
+  if (!map.getLayer("states-line")) {
+    map.addLayer({
+      id: "states-line",
+      type: "line",
+      source: "states",
+      layout: { visibility: "none" },
+      paint: {
+        "line-color": "#ffffff",
+        "line-width": 1.75,
+        "line-opacity": 0.95,
+      },
+    });
+  } else {
+    map.setPaintProperty("states-line", "line-color", "#ffffff");
+    map.setPaintProperty("states-line", "line-width", 1.75);
+    map.setPaintProperty("states-line", "line-opacity", 0.95);
+  }
+
+  // Heat stays under county boundaries; white state lines sit above county grey
+  if (map.getLayer(HEAT_LAYER) && map.getLayer("counties-fill")) {
+    map.moveLayer(HEAT_LAYER, "counties-fill");
+  }
+  if (map.getLayer("states-line") && map.getLayer("lines-layer")) {
+    map.moveLayer("states-line", "lines-layer");
+  }
+
   if (!map.getSource("lines")) {
     map.addSource("lines", { type: "geojson", data: emptyFC() });
+  }
+  if (!map.getLayer("lines-layer")) {
     map.addLayer({
       id: "lines-layer",
       type: "line",
       source: "lines",
       layout: { visibility: "none" },
       paint: {
-        "line-color": "#94a3b8",
-        "line-width": 1,
-        "line-opacity": 0.5,
+        "line-color": "#facc15",
+        "line-width": 1.75,
+        "line-opacity": 1,
       },
     });
+  } else {
+    // Always re-apply — layer often survives HMR with old paint
+    map.setPaintProperty("lines-layer", "line-color", "#facc15");
+    map.setPaintProperty("lines-layer", "line-width", 1.75);
+    map.setPaintProperty("lines-layer", "line-opacity", 1);
   }
 
   // LandRecords parcels (above counties/lines, below fiber routes / rings)
@@ -543,23 +852,7 @@ function ensureBaseLayers(map: maplibregl.Map) {
     if (map.getLayer("rings-line")) map.moveLayer("rings-line");
   }
 
-  // Place labels above flood/parcels/rings (top of MapLibre stack)
-  if (!map.getSource(LABELS_SOURCE)) {
-    map.addSource(LABELS_SOURCE, {
-      type: "raster",
-      tiles: STREET_LABEL_TILES,
-      tileSize: 256,
-      attribution: "CARTO",
-    });
-    map.addLayer({
-      id: LABELS_LAYER,
-      type: "raster",
-      source: LABELS_SOURCE,
-      paint: { "raster-opacity": 1 },
-    });
-  } else if (map.getLayer(LABELS_LAYER)) {
-    map.moveLayer(LABELS_LAYER);
-  }
+  // Place labels live in a sibling overlay map above the dots canvas
 }
 
 function setVis(map: maplibregl.Map, id: string, on: boolean) {
@@ -572,6 +865,7 @@ interface BessMapProps {
   projects: ProjFC | null;
   lines: LinesFC | null;
   counties: FeatureCollection | null;
+  states: FeatureCollection | null;
 }
 
 export function BessMap({
@@ -579,14 +873,19 @@ export function BessMap({
   projects,
   lines,
   counties,
+  states,
 }: BessMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const labelsContainerRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
+  const labelsMapRef = useRef<maplibregl.Map | null>(null);
   const popupRef = useRef<maplibregl.Popup | null>(null);
   const drawnSubsRef = useRef<DrawnSub[]>([]);
   const drawnProjsRef = useRef<DrawnProj[]>([]);
   const substationsRef = useRef(substations);
+  const countiesRef = useRef(counties);
+  const statesRef = useRef(states);
   const paintRef = useRef<() => void>(() => {});
   const parcelAbortRef = useRef<AbortController | null>(null);
   const clickedFeatureIdRef = useRef<string | null>(null);
@@ -595,7 +894,12 @@ export function BessMap({
   /** Tracks the basemap actually applied on the map (not just filter state). */
   const satRef = useRef(useAppStore.getState().filters.satellite);
   const selectParcelAtRef = useRef<
-    (lng: number, lat: number, feat?: maplibregl.MapGeoJSONFeature | null) => void
+    (
+      lng: number,
+      lat: number,
+      feat?: maplibregl.MapGeoJSONFeature | null,
+      knownLrid?: string
+    ) => void
   >(() => {});
 
   const filters = useAppStore((s) => s.filters);
@@ -611,11 +915,14 @@ export function BessMap({
   const [mapReady, setMapReady] = useState(false);
   const [status, setStatus] = useState("Initializing map…");
   const [drawnCount, setDrawnCount] = useState(0);
+  const [fiberCoveragePartial, setFiberCoveragePartial] = useState(false);
   const [searchProximity, setSearchProximity] = useState<
     [number, number] | null
   >(null);
 
   substationsRef.current = substations;
+  countiesRef.current = counties;
+  statesRef.current = states;
   showParcelsRef.current = filters.showParcels;
   filtersRef.current = filters;
 
@@ -675,6 +982,7 @@ export function BessMap({
         fuelDisplay: p.fuelDisplay,
         capacityMw: p.capacityMw,
         funnelStage: p.funnelStage,
+        geometryPrecision: p.geometryPrecision,
       });
     }
     return out;
@@ -682,6 +990,46 @@ export function BessMap({
 
   drawnSubsRef.current = filters.showSubstations ? visibleSubs : [];
   drawnProjsRef.current = visibleProjs;
+
+  // Single primitive key so this effect's dep array never changes size (HMR-safe)
+  // and never includes FeatureCollections / Drawn* arrays (React joins deps for errors).
+  const paintEpoch = useMemo(
+    () =>
+      [
+        filters.showSubstations ? 1 : 0,
+        filters.minVoltage,
+        filters.minScore,
+        filters.maxScore,
+        filters.maxQueuedMw,
+        filters.counties.join("|"),
+        filters.showProjects ? 1 : 0,
+        filters.minProjectMw,
+        filters.maxProjectMw,
+        filters.fuels.join(","),
+        filters.stages.join(","),
+        substations?.features.length ?? 0,
+        projects?.features.length ?? 0,
+        visibleSubs.length,
+        visibleProjs.length,
+      ].join("\0"),
+    [
+      filters.showSubstations,
+      filters.minVoltage,
+      filters.minScore,
+      filters.maxScore,
+      filters.maxQueuedMw,
+      filters.counties,
+      filters.showProjects,
+      filters.minProjectMw,
+      filters.maxProjectMw,
+      filters.fuels,
+      filters.stages,
+      substations?.features.length,
+      projects?.features.length,
+      visibleSubs.length,
+      visibleProjs.length,
+    ]
+  );
 
   paintRef.current = () => {
     const map = mapRef.current;
@@ -706,6 +1054,10 @@ export function BessMap({
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
 
+    const z = map.getZoom();
+    const subStyle = subStyleForZoom(z);
+    const projStyle = projStyleForZoom(z);
+
     const bounds = map.getBounds();
     const west = bounds.getWest();
     const east = bounds.getEast();
@@ -714,53 +1066,60 @@ export function BessMap({
     const padLng = (east - west) * 0.02;
     const padLat = (north - south) * 0.02;
 
-    const projs = drawnProjsRef.current;
-    for (let i = 0; i < projs.length; i++) {
-      const p = projs[i];
-      if (
-        p.lng < west - padLng ||
-        p.lng > east + padLng ||
-        p.lat < south - padLat ||
-        p.lat > north + padLat
-      ) {
-        continue;
+    const inBounds = (lng: number, lat: number) =>
+      lng >= west - padLng &&
+      lng <= east + padLng &&
+      lat >= south - padLat &&
+      lat <= north + padLat;
+
+    // Projects (deferred / precision-gated); translucent until close
+    if (projStyle.mode !== "hidden" && projStyle.alpha > 0.01) {
+      const projs = drawnProjsRef.current;
+      for (let i = 0; i < projs.length; i++) {
+        const p = projs[i];
+        if (!projStyle.allowCounty && p.geometryPrecision !== "substation") {
+          continue;
+        }
+        if (!inBounds(p.lng, p.lat)) continue;
+        const pt = map.project([p.lng, p.lat]);
+        const fill = FUEL_COLORS[p.fuel] ?? FUEL_COLORS.OTH;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, projStyle.radius, 0, Math.PI * 2);
+        ctx.fillStyle = rgba(fill, projStyle.alpha);
+        ctx.fill();
+        if (projStyle.strokeAlpha > 0.01) {
+          ctx.lineWidth = 1;
+          ctx.strokeStyle = rgba("#ffffff", projStyle.strokeAlpha);
+          ctx.stroke();
+        }
       }
-      const pt = map.project([p.lng, p.lat]);
-      ctx.beginPath();
-      ctx.arc(pt.x, pt.y, 3.5, 0, Math.PI * 2);
-      ctx.fillStyle = FUEL_COLORS[p.fuel] ?? FUEL_COLORS.OTH;
-      ctx.fill();
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = "#ffffff";
-      ctx.stroke();
     }
 
-    const subs = drawnSubsRef.current;
-    for (let i = 0; i < subs.length; i++) {
-      const s = subs[i];
-      if (
-        s.lng < west - padLng ||
-        s.lng > east + padLng ||
-        s.lat < south - padLat ||
-        s.lat > north + padLat
-      ) {
-        continue;
+    // Substations emerge from the MapLibre haze; map stays visible through dots until close
+    if (subStyle.alpha > 0.01) {
+      const subs = drawnSubsRef.current;
+      for (let i = 0; i < subs.length; i++) {
+        const s = subs[i];
+        if (!inBounds(s.lng, s.lat)) continue;
+        const pt = map.project([s.lng, s.lat]);
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, subStyle.radius, 0, Math.PI * 2);
+        ctx.fillStyle = rgba(scoreColor(s.score), subStyle.alpha);
+        ctx.fill();
+        if (subStyle.strokeAlpha > 0.01) {
+          ctx.lineWidth = 1.5;
+          ctx.strokeStyle = rgba("#111827", subStyle.strokeAlpha);
+          ctx.stroke();
+        }
       }
-      const pt = map.project([s.lng, s.lat]);
-      ctx.beginPath();
-      ctx.arc(pt.x, pt.y, 5.5, 0, Math.PI * 2);
-      ctx.fillStyle = scoreColor(s.score);
-      ctx.fill();
-      ctx.lineWidth = 1.5;
-      ctx.strokeStyle = "#111827";
-      ctx.stroke();
     }
   };
 
   // Create map
   useEffect(() => {
     const el = containerRef.current;
-    if (!el) return;
+    const labelsEl = labelsContainerRef.current;
+    if (!el || !labelsEl) return;
 
     let cancelled = false;
     setMapReady(false);
@@ -777,6 +1136,32 @@ export function BessMap({
       attributionControl: { compact: true },
     });
     mapRef.current = map;
+
+    // City / place labels above the dots canvas so names stay readable
+    const labelsMap = new maplibregl.Map({
+      container: labelsEl,
+      style: buildLabelsStyle(initialSatellite),
+      center: [-96.0, 39.0],
+      zoom: 3.5,
+      interactive: false,
+      attributionControl: false,
+      fadeDuration: 0,
+    });
+    labelsMapRef.current = labelsMap;
+
+    const syncLabelsCamera = () => {
+      if (cancelled || !labelsMapRef.current) return;
+      labelsMap.jumpTo({
+        center: map.getCenter(),
+        zoom: map.getZoom(),
+        bearing: map.getBearing(),
+        pitch: map.getPitch(),
+      });
+    };
+    map.on("move", syncLabelsCamera);
+    map.on("zoom", syncLabelsCamera);
+    map.on("pitch", syncLabelsCamera);
+    map.on("rotate", syncLabelsCamera);
 
     map.addControl(
       new maplibregl.NavigationControl({ showCompass: false }),
@@ -795,13 +1180,13 @@ export function BessMap({
       try {
         ensureBaseLayers(map);
         const f = filtersRef.current;
-        applyLabelTiles(map, f.satellite);
         applyParcelBasemapPaint(map, f.satellite);
         setParcelLayerVisibility(map, f.showParcels, f.satellite);
-        if (map.getLayer(LABELS_LAYER)) map.moveLayer(LABELS_LAYER);
         setMapReady(true);
         setStatus("");
         map.resize();
+        labelsMap.resize();
+        syncLabelsCamera();
         paintRef.current();
       } catch (err) {
         console.error(err);
@@ -830,31 +1215,22 @@ export function BessMap({
 
     map.on("mousemove", (e) => {
       const { x, y } = e.point;
-      let bestSub: DrawnSub | null = null;
-      let bestSubDist = 10;
-      for (const s of drawnSubsRef.current) {
-        const pt = map.project([s.lng, s.lat]);
-        const d = Math.hypot(pt.x - x, pt.y - y);
-        if (d < bestSubDist) {
-          bestSubDist = d;
-          bestSub = s;
-        }
-      }
-      let bestProj: DrawnProj | null = null;
-      let bestProjDist = 8;
-      for (const p of drawnProjsRef.current) {
-        const pt = map.project([p.lng, p.lat]);
-        const d = Math.hypot(pt.x - x, pt.y - y);
-        if (d < bestProjDist) {
-          bestProjDist = d;
-          bestProj = p;
-        }
-      }
+      const hit = hitTestOverlay(
+        map,
+        x,
+        y,
+        drawnSubsRef.current,
+        drawnProjsRef.current
+      );
+      const bestSub = hit.sub;
+      const bestProj = hit.proj;
+      const bestSubDist = hit.subDist;
+      const bestProjDist = hit.projDist;
 
       if (bestSub || bestProj) {
         map.getCanvas().style.cursor = "pointer";
         if (!popupRef.current) return;
-        if (bestSub && bestSubDist <= bestProjDist) {
+        if (bestSub && (!bestProj || bestSubDist <= bestProjDist)) {
           popupRef.current
             .setLngLat([bestSub.lng, bestSub.lat])
             .setHTML(
@@ -894,26 +1270,17 @@ export function BessMap({
 
     map.on("click", (e) => {
       const { x, y } = e.point;
-      let best: DrawnSub | null = null;
-      let bestDist = 10;
-      for (const s of drawnSubsRef.current) {
-        const pt = map.project([s.lng, s.lat]);
-        const d = Math.hypot(pt.x - x, pt.y - y);
-        if (d < bestDist) {
-          bestDist = d;
-          best = s;
-        }
-      }
-      let bestProj: DrawnProj | null = null;
-      let bestProjDist = 8;
-      for (const p of drawnProjsRef.current) {
-        const pt = map.project([p.lng, p.lat]);
-        const d = Math.hypot(pt.x - x, pt.y - y);
-        if (d < bestProjDist) {
-          bestProjDist = d;
-          bestProj = p;
-        }
-      }
+      const hit = hitTestOverlay(
+        map,
+        x,
+        y,
+        drawnSubsRef.current,
+        drawnProjsRef.current
+      );
+      const best = hit.sub;
+      const bestDist = hit.subDist;
+      const bestProj = hit.proj;
+      const bestProjDist = hit.projDist;
 
       // Prefer substation when both are under the cursor
       if (best && (!bestProj || bestDist <= bestProjDist)) {
@@ -965,6 +1332,8 @@ export function BessMap({
     const ro = new ResizeObserver(() => {
       if (!cancelled) {
         map.resize();
+        labelsMap.resize();
+        syncLabelsCamera();
         paintRef.current();
       }
     });
@@ -975,26 +1344,29 @@ export function BessMap({
       parcelAbortRef.current?.abort();
       ro.disconnect();
       popupRef.current?.remove();
+      labelsMap.remove();
+      labelsMapRef.current = null;
       map.remove();
       mapRef.current = null;
       setMapReady(false);
     };
   }, [setSelectedSubstation, setPanelTab, setParcelPopup]);
 
-  // Shared parcel select (map click + address search)
-  selectParcelAtRef.current = (lng, lat, feat) => {
+  // Shared parcel select (map click + address / parcel ID search)
+  selectParcelAtRef.current = (lng, lat, feat, knownLrid) => {
     const map = mapRef.current;
     if (!map) return;
 
     const hit = feat ?? queryParcelAtLngLat(map, lng, lat);
     const raw = (hit?.properties ?? {}) as Record<string, unknown>;
-    const mapped = mapProperties(raw);
     const lrid =
-      raw.lrid != null
+      knownLrid ||
+      (raw.lrid != null
         ? String(raw.lrid)
         : hit?.id != null
           ? String(hit.id)
-          : undefined;
+          : undefined);
+    const mapped = mapProperties(raw);
 
     if (lrid) applyParcelHighlight(map, clickedFeatureIdRef, lrid);
 
@@ -1066,19 +1438,18 @@ export function BessMap({
     if (satRef.current === filters.satellite) return;
     satRef.current = filters.satellite;
     applyBasemap(map, filters.satellite);
-    applyLabelTiles(map, filters.satellite);
+    const labelsMap = labelsMapRef.current;
+    if (labelsMap) applyLabelTiles(labelsMap, filters.satellite);
     applyParcelBasemapPaint(map, filters.satellite);
     setParcelLayerVisibility(
       map,
       filtersRef.current.showParcels,
       filters.satellite
     );
-    // Keep city labels above flood/parcels/rings
-    if (map.getLayer(LABELS_LAYER)) map.moveLayer(LABELS_LAYER);
     paintRef.current();
   }, [filters.satellite, mapReady]);
 
-  // Counties / rings / lines / status
+  // Layer visibility + boundary GeoJSON (avoid huge arrays in effect deps)
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
@@ -1088,33 +1459,18 @@ export function BessMap({
     setVis(map, FIBER_COV_LINE, filters.showFiberCoverage);
     setVis(map, "counties-fill", filters.showCounties);
     setVis(map, "counties-line", filters.showCounties);
+    setVis(map, "states-line", filters.showCounties);
     setVis(map, "lines-layer", filters.showLines);
     applyParcelBasemapPaint(map, filters.satellite);
     setParcelLayerVisibility(map, filters.showParcels, filters.satellite);
 
-    if (counties && map.getSource("counties")) {
-      (map.getSource("counties") as maplibregl.GeoJSONSource).setData(counties);
+    const co = countiesRef.current;
+    if (co && map.getSource("counties")) {
+      (map.getSource("counties") as maplibregl.GeoJSONSource).setData(co);
     }
-
-    if (selected) {
-      (map.getSource("rings") as maplibregl.GeoJSONSource).setData({
-        type: "FeatureCollection",
-        features: [
-          circlePolygon(selected.longitude, selected.latitude, 1),
-          circlePolygon(selected.longitude, selected.latitude, 5),
-        ],
-      });
-    } else if (map.getSource("rings")) {
-      (map.getSource("rings") as maplibregl.GeoJSONSource).setData(emptyFC());
-    }
-
-    setDrawnCount(visibleSubs.length);
-    if (visibleSubs.length === 0 && substations) {
-      setStatus("No substations match filters — click Reset");
-    } else if (!filters.showSubstations) {
-      setStatus("Substations layer is off — enable it in Filters");
-    } else {
-      setStatus("");
+    const st = statesRef.current;
+    if (st && map.getSource("states")) {
+      (map.getSource("states") as maplibregl.GeoJSONSource).setData(st);
     }
 
     paintRef.current();
@@ -1126,20 +1482,60 @@ export function BessMap({
     filters.showLines,
     filters.showParcels,
     filters.satellite,
-    filters.showSubstations,
-    counties,
-    selected,
-    visibleSubs,
-    visibleProjs,
-    substations,
+    // Identity of loaded snapshots (not the FeatureCollection contents)
+    counties ? counties.features.length : 0,
+    states ? states.features.length : 0,
   ]);
+
+  // Selection rings
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady || !map.getSource("rings")) return;
+    if (selected) {
+      (map.getSource("rings") as maplibregl.GeoJSONSource).setData({
+        type: "FeatureCollection",
+        features: [
+          circlePolygon(selected.longitude, selected.latitude, 1),
+          circlePolygon(selected.longitude, selected.latitude, 5),
+        ],
+      });
+    } else {
+      (map.getSource("rings") as maplibregl.GeoJSONSource).setData(emptyFC());
+    }
+  }, [mapReady, selected?.id, selected?.longitude, selected?.latitude]);
+
+  // Heat + canvas dots + status — read drawn* refs; fixed 2-dep array (HMR-safe)
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+
+    const subs = drawnSubsRef.current;
+    const count = subs.length;
+    setDrawnCount(count);
+    if (count === 0 && substationsRef.current) {
+      setStatus("No substations match filters — click Reset");
+    } else if (!filtersRef.current.showSubstations) {
+      setStatus("Substations layer is off — enable it in Filters");
+    } else {
+      setStatus("");
+    }
+
+    const heatSrc = map.getSource(HEAT_SOURCE) as
+      | maplibregl.GeoJSONSource
+      | undefined;
+    if (heatSrc) {
+      heatSrc.setData(heatFeaturesFromSubs(subs));
+    }
+
+    paintRef.current();
+  }, [mapReady, paintEpoch]);
 
   // Lazy-load heavy transmission lines only when toggled on
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady || !filters.showLines || !lines) return;
     const src = map.getSource("lines") as maplibregl.GeoJSONSource | undefined;
-    if (!src) return;
+    if (!src || !map.getLayer("lines-layer")) return;
     src.setData({
       type: "FeatureCollection",
       features: lines.features.map((f) => ({
@@ -1151,8 +1547,11 @@ export function BessMap({
         },
       })),
     });
+    map.setPaintProperty("lines-layer", "line-color", "#facc15");
+    map.setPaintProperty("lines-layer", "line-width", 1.75);
+    map.setPaintProperty("lines-layer", "line-opacity", 1);
     setVis(map, "lines-layer", true);
-  }, [mapReady, filters.showLines, lines]);
+  }, [mapReady, filters.showLines, lines?.features.length ?? 0]);
 
   // FCC fiber coverage — refetch on pan/zoom when layer is on
   useEffect(() => {
@@ -1168,6 +1567,7 @@ export function BessMap({
         | maplibregl.GeoJSONSource
         | undefined;
       if (src) src.setData(emptyFC());
+      setFiberCoveragePartial(false);
     };
 
     const fetchCoverage = () => {
@@ -1191,17 +1591,24 @@ export function BessMap({
       const url = `/api/fiber-coverage?bbox=${encodeURIComponent(bbox)}&z=${z}`;
       fetch(url, { signal: abort.signal })
         .then((r) => (r.ok ? r.json() : emptyFC()))
-        .then((fc: FeatureCollection) => {
-          if (mySeq !== seq) return;
-          if (!filtersRef.current.showFiberCoverage) {
-            clearCoverage();
-            return;
+        .then(
+          (
+            fc: FeatureCollection & {
+              truncated?: boolean;
+            }
+          ) => {
+            if (mySeq !== seq) return;
+            if (!filtersRef.current.showFiberCoverage) {
+              clearCoverage();
+              return;
+            }
+            const src = map.getSource(FIBER_COV_SOURCE) as
+              | maplibregl.GeoJSONSource
+              | undefined;
+            if (src) src.setData(fc ?? emptyFC());
+            setFiberCoveragePartial(Boolean(fc?.truncated));
           }
-          const src = map.getSource(FIBER_COV_SOURCE) as
-            | maplibregl.GeoJSONSource
-            | undefined;
-          if (src) src.setData(fc ?? emptyFC());
-        })
+        )
         .catch((err) => {
           if (err?.name === "AbortError") return;
           console.warn("fiber coverage fetch failed", err);
@@ -1257,14 +1664,38 @@ export function BessMap({
     return () => window.removeEventListener("bess:fly-to", handler);
   }, []);
 
-  const flyToAddress = (lng: number, lat: number) => {
+  const flyToAddress = (
+    lng: number,
+    lat: number,
+    meta?: { lrid?: string; kind?: string; substationId?: string }
+  ) => {
     const map = mapRef.current;
     if (!map) return;
 
+    // Substation / scored site — select details panel (fly handled by selected effect)
+    if (meta?.kind === "substation" && meta.substationId) {
+      const full = substationsRef.current?.features.find(
+        (f) => f.properties.id === meta.substationId
+      );
+      if (full) {
+        if (!filters.showSubstations) setFilters({ showSubstations: true });
+        setSelectedSubstation(full.properties);
+        setPanelTab("details");
+        return;
+      }
+    }
+
     if (!filters.showParcels) setFilters({ showParcels: true });
 
-    // Popup + API immediately; highlight once parcel tiles are under the pin
-    selectParcelAtRef.current(lng, lat, queryParcelAtLngLat(map, lng, lat));
+    const knownLrid = meta?.lrid?.trim() || undefined;
+
+    // Popup + API immediately; prefer WFS-by-lrid when search found a parcel
+    selectParcelAtRef.current(
+      lng,
+      lat,
+      queryParcelAtLngLat(map, lng, lat),
+      knownLrid
+    );
 
     map.flyTo({
       center: [lng, lat],
@@ -1276,6 +1707,10 @@ export function BessMap({
     const syncHighlight = () => {
       const m = mapRef.current;
       if (!m) return;
+      if (knownLrid) {
+        applyParcelHighlight(m, clickedFeatureIdRef, knownLrid);
+        return;
+      }
       const hit = queryParcelAtLngLat(m, lng, lat);
       if (!hit) return;
       const raw = (hit.properties ?? {}) as Record<string, unknown>;
@@ -1303,14 +1738,27 @@ export function BessMap({
         className="pointer-events-none absolute inset-0 z-10 h-full w-full"
         aria-hidden
       />
+      {/* Place labels above dots + heat so city/state names stay readable */}
+      <div
+        ref={labelsContainerRef}
+        className="pointer-events-none absolute inset-0 z-20 h-full w-full bg-transparent [&_.maplibregl-canvas]:bg-transparent [&_.maplibregl-canvas]:!outline-none [&_.maplibregl-map]:bg-transparent"
+        aria-hidden
+      />
       <div className="pointer-events-none absolute left-3 top-3 z-50 flex w-[min(100%-1.5rem,24rem)] flex-col gap-2">
         <div className="w-fit rounded-md border border-slate-200 bg-white/95 px-2.5 py-1.5 text-[11px] font-medium text-slate-700 shadow">
           {drawnCount.toLocaleString()} scored sites
         </div>
         <MapAddressSearch
           proximity={searchProximity}
-          onSelect={(lng, lat) => flyToAddress(lng, lat)}
+          substations={substations}
+          onSelect={(lng, lat, _label, meta) => flyToAddress(lng, lat, meta)}
         />
+        {filters.showFiberCoverage && fiberCoveragePartial && (
+          <div className="w-fit max-w-sm rounded-md border border-amber-200 bg-amber-50/95 px-2.5 py-1.5 text-[11px] leading-snug text-amber-950 shadow">
+            Fiber overlay is incomplete at this zoom — zoom in for full coverage
+            at a property.
+          </div>
+        )}
       </div>
       {/* Under MapLibre NavigationControl (top-right, ~two 29px zoom buttons) */}
       <div className="pointer-events-auto absolute right-2.5 top-[80px] z-50 flex flex-col gap-0.5">

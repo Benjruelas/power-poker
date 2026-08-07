@@ -98,7 +98,7 @@ export function FilterSidebar({
                 ["showSubstations", "Substations"],
                 ["showLines", "Transmission lines"],
                 ["showProjects", "Queue projects"],
-                ["showCounties", "County boundaries"],
+                ["showCounties", "County / state boundaries"],
                 ["showParcels", "Parcels (zoom 15+)"],
                 ["showFloodZones", "Flood zones"],
                 ["showFiberCoverage", "Fiber service areas (FCC)"],
@@ -115,7 +115,8 @@ export function FilterSidebar({
                 </span>
                 {key === "showFiberCoverage" && filters.showFiberCoverage && (
                   <span className="pl-6 text-[11px] leading-snug text-muted-foreground">
-                    Teal areas = census blocks with reported fiber internet.
+                    Teal = FCC-reported fiber. Zoom in for parcel-scale blocks;
+                    empty gaps at wide zooms are not reliable “no fiber.”
                   </span>
                 )}
               </label>

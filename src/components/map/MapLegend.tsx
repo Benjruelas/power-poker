@@ -102,7 +102,7 @@ export function MapLegend({
           Fiber service areas
         </div>
         <p className="text-[10px] leading-snug text-slate-500">
-          Teal fill · FCC blocks with fiber internet
+          Teal fill · FCC fiber (zoom in for parcel-scale)
         </p>
         <p className="mt-2 text-[10px] leading-snug text-slate-500">
           Rings: 1 mi parcel search · 5 mi queue proximity

@@ -48,6 +48,7 @@ export function AppShell() {
     TransmissionLineProperties
   > | null>(null);
   const [counties, setCounties] = useState<FeatureCollection | null>(null);
+  const [states, setStates] = useState<FeatureCollection | null>(null);
   const [countyList, setCountyList] = useState<string[]>([]);
   const [meta, setMeta] = useState<DataMeta | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -67,6 +68,7 @@ export function AppShell() {
           projRes,
           linesRes,
           countiesRes,
+          statesRes,
           listRes,
           metaRes,
         ] = await Promise.all([
@@ -74,6 +76,7 @@ export function AppShell() {
           fetch("/data/projects.geojson"),
           fetch("/data/lines.geojson"),
           fetch("/data/counties.geojson"),
+          fetch("/data/states.geojson"),
           fetch("/data/counties-list.json"),
           fetch("/data/meta.json"),
         ]);
@@ -82,16 +85,18 @@ export function AppShell() {
             "Data snapshot missing. Run `npm run data` then restart the dev server."
           );
         }
-        const [subs, proj, ln, co, list, m] = await Promise.all([
+        const [subs, proj, ln, co, st, list, m] = await Promise.all([
           subsRes.json(),
           projRes.json(),
           linesRes.json(),
           countiesRes.json(),
+          statesRes.ok ? statesRes.json() : Promise.resolve(null),
           listRes.json(),
           metaRes.json(),
         ]);
         if (cancelled) return;
         setSubstations(subs);
+        setStates(st);
         setProjects(proj);
         setLines(ln);
         setCounties(co);
@@ -175,6 +180,7 @@ export function AppShell() {
               projects={projects}
               lines={lines}
               counties={counties}
+              states={states}
             />
           )}
           {error && (

@@ -1506,6 +1506,47 @@ async function buildCounties(): Promise<{
   };
 }
 
+/** Dissolve county polygons into CONUS state boundaries for map outlines. */
+function buildStatesFromCounties(
+  counties: FeatureCollection<Polygon | MultiPolygon>
+): FeatureCollection<Polygon | MultiPolygon> {
+  const byState = new Map<string, Feature<Polygon | MultiPolygon>[]>();
+  for (const f of counties.features) {
+    const state = f.properties?.state as string | undefined;
+    if (!state) continue;
+    const list = byState.get(state);
+    if (list) list.push(f);
+    else byState.set(state, [f]);
+  }
+
+  const features: Feature<Polygon | MultiPolygon>[] = [];
+  for (const [state, feats] of byState) {
+    let merged: Feature<Polygon | MultiPolygon> | null = null;
+    if (feats.length === 1) {
+      merged = feats[0];
+    } else {
+      try {
+        merged = turf.union(
+          turf.featureCollection(feats)
+        ) as Feature<Polygon | MultiPolygon> | null;
+      } catch {
+        merged = null;
+      }
+    }
+    if (!merged?.geometry) continue;
+    features.push({
+      type: "Feature",
+      properties: { state },
+      geometry: merged.geometry,
+    });
+  }
+  features.sort((a, b) =>
+    String(a.properties?.state).localeCompare(String(b.properties?.state))
+  );
+  console.log(`States dissolved: ${features.length}`);
+  return { type: "FeatureCollection", features };
+}
+
 const HIFLD_SUBMARINE_CABLE_URLS = [
   "https://services5.arcgis.com/HDRa0B57OVrv2E1q/arcgis/rest/services/Submarine_Cable_Lines_USACE_IENC/FeatureServer/0/query",
 ];
@@ -1743,6 +1784,7 @@ async function main() {
   const lines = await buildLines();
   const fiberRoutes = await buildFiberRoutes();
   const { counties, centroids } = await buildCounties();
+  const states = buildStatesFromCounties(counties);
   const projects = await buildProjects(substations, centroids);
   enrichSubstations(substations, projects);
 
@@ -1797,6 +1839,10 @@ async function main() {
     path.join(OUT_DIR, "counties.geojson"),
     JSON.stringify(counties)
   );
+  await writeFile(
+    path.join(OUT_DIR, "states.geojson"),
+    JSON.stringify(states)
+  );
   await writeFile(path.join(OUT_DIR, "meta.json"), JSON.stringify(meta, null, 2));
 
   const countySet = new Set<string>();
@@ -1816,6 +1862,7 @@ async function main() {
   console.log(`  fiber routes:${meta.fiberRouteCount}`);
   console.log(`  projects:    ${meta.projectCount}`);
   console.log(`  counties:    ${meta.countyCount}`);
+  console.log(`  states:      ${states.features.length}`);
   console.log("Done.");
 }
 

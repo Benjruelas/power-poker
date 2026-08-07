@@ -1,16 +1,31 @@
 "use client";
 
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
+import type { FeatureCollection, Point } from "geojson";
 import { Loader2, MapPin, X } from "lucide-react";
 import type { GeocodeSuggestion } from "@/lib/geocode";
+import { searchSubstations } from "@/lib/searchSubstations";
+import type { SubstationProperties } from "@/lib/types";
 
 type Props = {
-  onSelect: (lng: number, lat: number, label: string) => void;
+  onSelect: (
+    lng: number,
+    lat: number,
+    label: string,
+    meta?: {
+      lrid?: string;
+      kind?: GeocodeSuggestion["kind"];
+      substationId?: string;
+    }
+  ) => void;
   /** Optional map-center bias as [lng, lat] for Mapbox proximity + local owner/APN. */
   proximity?: [number, number] | null;
+  /** Loaded substations for client-side name / place search. */
+  substations?: FeatureCollection<Point, SubstationProperties> | null;
 };
 
 function kindLabel(kind: GeocodeSuggestion["kind"]): string | null {
+  if (kind === "substation") return "Site";
   if (kind === "owner") return "Owner";
   if (kind === "parcel") return "Parcel";
   if (kind === "address") return "Address";
@@ -18,13 +33,19 @@ function kindLabel(kind: GeocodeSuggestion["kind"]): string | null {
 }
 
 /**
- * Address / owner / parcel autocomplete — Mapbox places + LandRecords WFS.
+ * Address / owner / parcel / substation autocomplete.
  */
-export function MapAddressSearch({ onSelect, proximity = null }: Props) {
+export function MapAddressSearch({
+  onSelect,
+  proximity = null,
+  substations = null,
+}: Props) {
   const listId = useId();
   const wrapRef = useRef<HTMLDivElement>(null);
   const proximityRef = useRef(proximity);
   proximityRef.current = proximity;
+  const substationsRef = useRef(substations);
+  substationsRef.current = substations;
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<GeocodeSuggestion[]>([]);
   const [open, setOpen] = useState(false);
@@ -45,9 +66,11 @@ export function MapAddressSearch({ onSelect, proximity = null }: Props) {
     const t = window.setTimeout(async () => {
       setLoading(true);
       setError(null);
+      const prox = proximityRef.current;
+      const localSubs = searchSubstations(q, substationsRef.current, prox, 5);
+
       try {
         const params = new URLSearchParams({ q });
-        const prox = proximityRef.current;
         if (
           prox &&
           Number.isFinite(prox[0]) &&
@@ -63,20 +86,38 @@ export function MapAddressSearch({ onSelect, proximity = null }: Props) {
           error?: string;
         };
         if (!res.ok) {
-          setSuggestions([]);
-          setError(data.error || "Search failed");
+          // Still show local substation hits if the remote geocoder fails
+          if (localSubs.length > 0) {
+            setSuggestions(localSubs);
+            setOpen(true);
+            setActiveIdx(-1);
+            setError(null);
+          } else {
+            setSuggestions([]);
+            setError(data.error || "Search failed");
+          }
           return;
         }
-        setSuggestions(data.suggestions ?? []);
+        const remote = data.suggestions ?? [];
+        // Sites first, then owner/APN/address from the API
+        const merged = [...localSubs, ...remote].slice(0, 10);
+        setSuggestions(merged);
         setOpen(true);
         setActiveIdx(-1);
-        if ((data.suggestions ?? []).length === 0) {
+        if (merged.length === 0) {
           setError(`No results for "${q}".`);
         }
       } catch (err) {
         if ((err as Error).name === "AbortError") return;
-        setSuggestions([]);
-        setError("Search unavailable");
+        if (localSubs.length > 0) {
+          setSuggestions(localSubs);
+          setOpen(true);
+          setActiveIdx(-1);
+          setError(null);
+        } else {
+          setSuggestions([]);
+          setError("Search unavailable");
+        }
       } finally {
         setLoading(false);
       }
@@ -101,7 +142,11 @@ export function MapAddressSearch({ onSelect, proximity = null }: Props) {
     setOpen(false);
     setSuggestions([]);
     setError(null);
-    onSelect(s.lng, s.lat, s.label);
+    onSelect(s.lng, s.lat, s.label, {
+      lrid: s.lrid,
+      kind: s.kind,
+      substationId: s.substationId,
+    });
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -115,9 +160,11 @@ export function MapAddressSearch({ onSelect, proximity = null }: Props) {
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setActiveIdx((i) => (i <= 0 ? suggestions.length - 1 : i - 1));
-    } else if (e.key === "Enter" && activeIdx >= 0) {
+    } else if (e.key === "Enter") {
       e.preventDefault();
-      pick(suggestions[activeIdx]!);
+      // Prefer highlighted row; otherwise first match
+      const idx = activeIdx >= 0 ? activeIdx : 0;
+      pick(suggestions[idx]!);
     } else if (e.key === "Escape") {
       setOpen(false);
     }
@@ -139,8 +186,8 @@ export function MapAddressSearch({ onSelect, proximity = null }: Props) {
           }}
           onFocus={() => setOpen(true)}
           onKeyDown={onKeyDown}
-          placeholder="Address, owner, or parcel #…"
-          aria-label="Search address, owner, or parcel number"
+          placeholder="Address, site, owner, or parcel #…"
+          aria-label="Search address, substation, owner, or parcel number"
           aria-autocomplete="list"
           aria-controls={listId}
           aria-expanded={open && suggestions.length > 0}
