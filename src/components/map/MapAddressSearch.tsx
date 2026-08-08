@@ -63,8 +63,20 @@ export function MapAddressSearch({
     }
 
     const ctrl = new AbortController();
-    const t = window.setTimeout(async () => {
+    // Local sites are instant — paint them quickly, then fill in remote.
+    const localTimer = window.setTimeout(() => {
+      const prox = proximityRef.current;
+      const localSubs = searchSubstations(q, substationsRef.current, prox, 5);
+      if (localSubs.length > 0) {
+        setSuggestions(localSubs);
+        setOpen(true);
+        setActiveIdx(-1);
+        setError(null);
+      }
       setLoading(true);
+    }, 80);
+
+    const remoteTimer = window.setTimeout(async () => {
       setError(null);
       const prox = proximityRef.current;
       const localSubs = searchSubstations(q, substationsRef.current, prox, 5);
@@ -86,7 +98,6 @@ export function MapAddressSearch({
           error?: string;
         };
         if (!res.ok) {
-          // Still show local substation hits if the remote geocoder fails
           if (localSubs.length > 0) {
             setSuggestions(localSubs);
             setOpen(true);
@@ -119,13 +130,14 @@ export function MapAddressSearch({
           setError("Search unavailable");
         }
       } finally {
-        setLoading(false);
+        if (!ctrl.signal.aborted) setLoading(false);
       }
-    }, 300);
+    }, 200);
 
     return () => {
       ctrl.abort();
-      window.clearTimeout(t);
+      window.clearTimeout(localTimer);
+      window.clearTimeout(remoteTimer);
     };
   }, [query]);
 

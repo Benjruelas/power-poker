@@ -2,11 +2,15 @@
 
 import { createPortal } from "react-dom";
 import { useEffect, useRef, type RefObject } from "react";
-import { ChevronUp, ListPlus, ListChecks, X } from "lucide-react";
+import { ChevronUp, X } from "lucide-react";
 import type maplibregl from "maplibre-gl";
 
 import type { ParcelPopupView } from "@/lib/landrecords/parcelPropertyMap";
 import { useAppStore } from "@/lib/store";
+import {
+  ParcelReviewBadge,
+  ParcelReviewButtons,
+} from "@/components/parcel/ParcelReviewButtons";
 import { usePopupPosition } from "./usePopupPosition";
 import { cn } from "@/lib/utils";
 
@@ -24,14 +28,7 @@ export function ParcelPopup({
   const pos = usePopupPosition(mapRef, popupData?.lat, popupData?.lng);
   const cardRef = useRef<HTMLDivElement>(null);
   const parcelId = popupData?.parcelId;
-  const inList = useAppStore((s) => {
-    if (!parcelId) return false;
-    const list = s.parcelLists.find((l) => l.id === s.activeParcelListId);
-    return Boolean(list?.items.some((i) => i.parcelId === parcelId));
-  });
-  const toggleParcelInActiveList = useAppStore(
-    (s) => s.toggleParcelInActiveList
-  );
+  const parcelFocus = useAppStore((s) => s.parcelFocus);
 
   useEffect(() => {
     if (!popupData) return;
@@ -119,18 +116,30 @@ export function ParcelPopup({
                 : "Absentee Owner"}
             </span>
           ) : null}
-          {popupData.age != null ? (
+            {popupData.age != null ? (
             <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-600">
               {popupData.age} yrs
             </span>
           ) : null}
+          {parcelId ? <ParcelReviewBadge parcelId={parcelId} /> : null}
         </div>
 
         <div
-          className="flex items-center gap-1 px-3 pb-3 pt-2.5"
+          className="space-y-2 px-3 pb-3 pt-2.5"
           onClick={(e) => e.stopPropagation()}
           onPointerDown={(e) => e.stopPropagation()}
         >
+          {parcelId ? (
+            <ParcelReviewButtons
+              parcelId={parcelId}
+              parcel={
+                parcelFocus?.id === parcelId || parcelFocus?.lrid === parcelId
+                  ? parcelFocus
+                  : null
+              }
+              size="sm"
+            />
+          ) : null}
           <button
             type="button"
             onClick={(e) => {
@@ -138,27 +147,11 @@ export function ParcelPopup({
               e.preventDefault();
               queueMicrotask(() => onOpenDetails());
             }}
-            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-slate-100 px-2 py-1.5 text-xs font-medium text-slate-800 transition-colors hover:bg-slate-200"
+            className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-slate-100 px-2 py-1.5 text-xs font-medium text-slate-800 transition-colors hover:bg-slate-200"
             title="More Details"
           >
             <ChevronUp size={12} />
             <span>Details</span>
-          </button>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              toggleParcelInActiveList();
-            }}
-            className={cn(
-              "rounded-lg p-2 transition-colors",
-              inList
-                ? "bg-emerald-600 text-white hover:bg-emerald-700"
-                : "bg-blue-50 text-blue-700 hover:bg-blue-100"
-            )}
-            title={inList ? "Remove from list" : "Add to list"}
-          >
-            {inList ? <ListChecks size={13} /> : <ListPlus size={13} />}
           </button>
         </div>
       </div>

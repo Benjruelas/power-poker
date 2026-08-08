@@ -1,13 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import {
-  BookmarkCheck,
-  BookmarkPlus,
-  ExternalLink,
-  MapPin,
-  X,
-} from "lucide-react";
+import type { FeatureCollection, Point } from "geojson";
+import { ExternalLink, MapPin, X } from "lucide-react";
 
 import { useAppStore } from "@/lib/store";
 import {
@@ -18,6 +13,13 @@ import {
   type DetailRow,
 } from "@/lib/landrecords/parcelDetails";
 import { computeOwnerOccupied } from "@/lib/landrecords/ownerOccupied";
+import type { SubstationProperties } from "@/lib/types";
+import {
+  ParcelReviewBadge,
+  ParcelReviewButtons,
+} from "@/components/parcel/ParcelReviewButtons";
+import { ParcelGridScreeningTab } from "@/components/panels/ParcelGridScreeningTab";
+import { ShareParcelSheet } from "@/components/share/ShareParcelSheet";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -26,6 +28,7 @@ import { cn } from "@/lib/utils";
 
 const TABS = [
   { id: "overview", label: "Overview" },
+  { id: "grid", label: "Grid" },
   { id: "property", label: "Property" },
   { id: "valuation", label: "Value" },
   { id: "ownership", label: "Owner" },
@@ -61,28 +64,18 @@ function DataRows({ items }: { items: DetailRow[] }) {
   );
 }
 
-export function ParcelDetailsPanel() {
+type Props = {
+  substations?: FeatureCollection<Point, SubstationProperties> | null;
+};
+
+export function ParcelDetailsPanel({ substations = null }: Props) {
   const selected = useAppStore((s) => s.selectedParcel);
   const clearSelectedParcel = useAppStore((s) => s.clearSelectedParcel);
-  const toggleParcelInActiveList = useAppStore(
-    (s) => s.toggleParcelInActiveList
-  );
-  const activeParcelListId = useAppStore((s) => s.activeParcelListId);
-  const parcelLists = useAppStore((s) => s.parcelLists);
   const [tab, setTab] = useState<TabId>("overview");
 
   useEffect(() => {
     setTab("overview");
   }, [selected?.id]);
-
-  const inList = Boolean(
-    selected &&
-      parcelLists
-        .find((l) => l.id === activeParcelListId)
-        ?.items.some((i) => i.parcelId === selected.id)
-  );
-  const activeListName =
-    parcelLists.find((l) => l.id === activeParcelListId)?.name ?? "My parcels";
 
   const categorized = useMemo(() => {
     if (!selected) return null;
@@ -130,7 +123,10 @@ export function ParcelDetailsPanel() {
   pick("property", ["USE_DESC"]);
   pick("location", ["SCHOOL_DISTRICT"]);
 
-  const tabCategoryMap: Record<Exclude<TabId, "overview">, CategoryId[]> = {
+  const tabCategoryMap: Record<
+    Exclude<TabId, "overview" | "grid">,
+    CategoryId[]
+  > = {
     property: ["property", "other"],
     valuation: ["valuation"],
     ownership: ["ownership", "mailing", "identification"],
@@ -153,6 +149,10 @@ export function ParcelDetailsPanel() {
             {ownerName ? (
               <span className="text-sm text-muted-foreground">{ownerName}</span>
             ) : null}
+            <ParcelReviewBadge
+              parcelId={selected.id}
+              altId={selected.lrid}
+            />
             {ownerOccupied ? (
               <Badge
                 variant="secondary"
@@ -182,23 +182,7 @@ export function ParcelDetailsPanel() {
           ) : null}
         </div>
         <div className="flex shrink-0 gap-1">
-          <Button
-            variant={inList ? "default" : "outline"}
-            size="icon"
-            className="size-7"
-            onClick={() => toggleParcelInActiveList(selected)}
-            title={
-              inList
-                ? `Remove from ${activeListName}`
-                : `Add to ${activeListName}`
-            }
-          >
-            {inList ? (
-              <BookmarkCheck className="size-3.5" />
-            ) : (
-              <BookmarkPlus className="size-3.5" />
-            )}
-          </Button>
+          <ShareParcelSheet parcel={selected} />
           <Button
             variant="ghost"
             size="icon"
@@ -211,6 +195,10 @@ export function ParcelDetailsPanel() {
         </div>
       </div>
 
+      <div className="border-b px-4 py-2">
+        <ParcelReviewButtons parcelId={selected.id} parcel={selected} />
+      </div>
+
       <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2">
         <a
           href={mapsUrl}
@@ -221,10 +209,6 @@ export function ParcelDetailsPanel() {
           <ExternalLink className="size-3.5" />
           Directions
         </a>
-        <span className="text-[11px] text-muted-foreground">
-          List: {activeListName}
-          {inList ? " · saved" : ""}
-        </span>
       </div>
 
       <div className="flex gap-0.5 overflow-x-auto border-b px-2">
@@ -280,6 +264,12 @@ export function ParcelDetailsPanel() {
                 <DataRows items={categorized.address} />
               </section>
             </>
+          ) : tab === "grid" ? (
+            <ParcelGridScreeningTab
+              lat={selected.lat}
+              lng={selected.lng}
+              substations={substations}
+            />
           ) : (
             tabCategoryMap[tab].map((cat) => {
               const items = categorized[cat];

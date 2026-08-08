@@ -30,6 +30,11 @@ import type {
   TransmissionLineProperties,
 } from "@/lib/types";
 import { FUEL_COLORS } from "@/lib/types";
+import {
+  NO_PARCEL_LIST_ID,
+  reviewFeatureIds,
+  YES_PARCEL_LIST_ID,
+} from "@/lib/lists/parcelReview";
 
 function buildParcelViews(
   properties: ReturnType<typeof mapProperties>,
@@ -85,47 +90,92 @@ const FS_CLICKED = [
   false,
 ] as unknown as maplibregl.ExpressionSpecification;
 
-/** Street vs satellite parcel paint — white+halo on imagery for contrast. */
+const FS_REVIEW_YES = [
+  "==",
+  ["feature-state", "review"],
+  "yes",
+] as unknown as maplibregl.ExpressionSpecification;
+
+const FS_REVIEW_NO = [
+  "==",
+  ["feature-state", "review"],
+  "no",
+] as unknown as maplibregl.ExpressionSpecification;
+
+/** Street vs satellite parcel paint — reviewed Yes/No stand out clearly. */
 function applyParcelBasemapPaint(map: maplibregl.Map, satellite: boolean) {
   if (!map.getLayer(PARCEL_FILL) || !map.getLayer(PARCEL_LINE)) return;
-  if (satellite) {
-    map.setPaintProperty(PARCEL_FILL, "fill-color", "#38bdf8");
-    // Unselected: no fill — only the selected parcel gets a cyan wash
-    map.setPaintProperty(PARCEL_FILL, "fill-opacity", [
-      "case",
-      FS_CLICKED,
-      0.4,
-      0,
-    ]);
-    map.setPaintProperty(PARCEL_LINE, "line-color", "#f8fafc");
-    map.setPaintProperty(PARCEL_LINE, "line-width", [
-      "case",
-      FS_CLICKED,
-      3.5,
-      2,
-    ]);
-    map.setPaintProperty(PARCEL_LINE, "line-opacity", 1);
-  } else {
-    map.setPaintProperty(PARCEL_FILL, "fill-color", "#2563eb");
-    map.setPaintProperty(PARCEL_FILL, "fill-opacity", [
-      "case",
-      FS_CLICKED,
-      0.45,
-      0.04,
-    ]);
-    map.setPaintProperty(PARCEL_LINE, "line-color", "#2563eb");
-    map.setPaintProperty(PARCEL_LINE, "line-width", [
-      "case",
-      FS_CLICKED,
-      3,
-      1.5,
-    ]);
-    map.setPaintProperty(PARCEL_LINE, "line-opacity", [
-      "case",
-      FS_CLICKED,
-      1,
-      0.85,
-    ]);
+
+  const fillColor: maplibregl.ExpressionSpecification = [
+    "case",
+    FS_REVIEW_YES,
+    "#16a34a",
+    FS_REVIEW_NO,
+    "#dc2626",
+    satellite ? "#38bdf8" : "#2563eb",
+  ];
+  const lineColor: maplibregl.ExpressionSpecification = [
+    "case",
+    FS_REVIEW_YES,
+    "#15803d",
+    FS_REVIEW_NO,
+    "#b91c1c",
+    satellite ? "#f8fafc" : "#2563eb",
+  ];
+  const fillOpacity: maplibregl.ExpressionSpecification = [
+    "case",
+    FS_REVIEW_YES,
+    0.5,
+    FS_REVIEW_NO,
+    0.45,
+    FS_CLICKED,
+    satellite ? 0.4 : 0.45,
+    satellite ? 0 : 0.04,
+  ];
+  const lineWidth: maplibregl.ExpressionSpecification = [
+    "case",
+    FS_REVIEW_YES,
+    3.25,
+    FS_REVIEW_NO,
+    3.25,
+    FS_CLICKED,
+    satellite ? 3.5 : 3,
+    satellite ? 2 : 1.5,
+  ];
+  const lineOpacity: maplibregl.ExpressionSpecification = [
+    "case",
+    FS_REVIEW_YES,
+    1,
+    FS_REVIEW_NO,
+    1,
+    FS_CLICKED,
+    1,
+    satellite ? 1 : 0.85,
+  ];
+
+  map.setPaintProperty(PARCEL_FILL, "fill-color", fillColor);
+  map.setPaintProperty(PARCEL_FILL, "fill-opacity", fillOpacity);
+  map.setPaintProperty(PARCEL_LINE, "line-color", lineColor);
+  map.setPaintProperty(PARCEL_LINE, "line-width", lineWidth);
+  map.setPaintProperty(PARCEL_LINE, "line-opacity", lineOpacity);
+}
+
+function setParcelReviewState(
+  map: maplibregl.Map,
+  featureId: string,
+  review: "yes" | "no" | null
+) {
+  try {
+    map.setFeatureState(
+      {
+        source: PARCEL_SOURCE,
+        sourceLayer: PARCEL_SOURCE_LAYER,
+        id: featureId,
+      },
+      { review }
+    );
+  } catch {
+    /* feature not in loaded tiles yet */
   }
 }
 
@@ -433,11 +483,9 @@ const STREET_LABEL_TILES = [
   "https://b.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}@2x.png",
   "https://c.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}@2x.png",
 ];
-/** Light text labels for dark imagery (Carto XYZ — reliable in MapLibre). */
+/** Place labels designed for Esri World Imagery (cream text + markers). */
 const SAT_LABEL_TILES = [
-  "https://a.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}@2x.png",
-  "https://b.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}@2x.png",
-  "https://c.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}@2x.png",
+  "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
 ];
 const OSM_ATTR =
   '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; CARTO';
@@ -446,43 +494,50 @@ const SAT_ATTR = "Esri, Maxar, Earthstar Geographics";
 const LABELS_SOURCE = "place-labels";
 const LABELS_LAYER = "place-labels";
 
-function buildLabelsStyle(satellite: boolean): maplibregl.StyleSpecification {
-  return {
-    version: 8,
-    sources: {
-      [LABELS_SOURCE]: {
-        type: "raster",
-        tiles: satellite ? SAT_LABEL_TILES : STREET_LABEL_TILES,
-        tileSize: 256,
-        attribution: "CARTO",
+/** City / place names — always the top MapLibre layer (above parcels & heat). */
+function ensurePlaceLabels(map: maplibregl.Map, satellite: boolean) {
+  const tiles = satellite ? SAT_LABEL_TILES : STREET_LABEL_TILES;
+  const attribution = satellite
+    ? "Esri Boundaries & Places"
+    : "CARTO / OSM labels";
+
+  if (!map.getSource(LABELS_SOURCE)) {
+    map.addSource(LABELS_SOURCE, {
+      type: "raster",
+      tiles,
+      tileSize: 256,
+      attribution,
+    });
+  } else {
+    const src = map.getSource(LABELS_SOURCE) as maplibregl.RasterTileSource;
+    if (typeof src.setTiles === "function") {
+      src.setTiles(tiles);
+      if (typeof src.load === "function") src.load();
+    }
+  }
+
+  if (!map.getLayer(LABELS_LAYER)) {
+    map.addLayer({
+      id: LABELS_LAYER,
+      type: "raster",
+      source: LABELS_SOURCE,
+      paint: {
+        "raster-opacity": 1,
+        "raster-fade-duration": 0,
       },
-    },
-    layers: [
-      {
-        id: "labels-bg",
-        type: "background",
-        paint: {
-          "background-color": "rgba(0,0,0,0)",
-          "background-opacity": 0,
-        },
-      },
-      {
-        id: LABELS_LAYER,
-        type: "raster",
-        source: LABELS_SOURCE,
-        paint: { "raster-opacity": 1 },
-      },
-    ],
-  };
+    });
+  } else {
+    map.setPaintProperty(LABELS_LAYER, "raster-opacity", 1);
+  }
+
+  // Keep above every other map layer so names aren't buried under heat/parcels
+  if (map.getLayer(LABELS_LAYER)) {
+    map.moveLayer(LABELS_LAYER);
+  }
 }
 
 function applyLabelTiles(map: maplibregl.Map, satellite: boolean) {
-  const src = map.getSource(LABELS_SOURCE) as
-    | maplibregl.RasterTileSource
-    | undefined;
-  if (src && typeof src.setTiles === "function") {
-    src.setTiles(satellite ? SAT_LABEL_TILES : STREET_LABEL_TILES);
-  }
+  ensurePlaceLabels(map, satellite);
 }
 
 const FLOOD_SOURCE = "flood-zones";
@@ -553,7 +608,7 @@ function scoreColor(score: number): string {
   return "#ef4444";
 }
 
-function ensureBaseLayers(map: maplibregl.Map) {
+function ensureBaseLayers(map: maplibregl.Map, satellite: boolean) {
   // FEMA flood zones — above basemap, below counties/lines/parcels
   if (!map.getSource(FLOOD_SOURCE)) {
     map.addSource(FLOOD_SOURCE, {
@@ -852,7 +907,8 @@ function ensureBaseLayers(map: maplibregl.Map) {
     if (map.getLayer("rings-line")) map.moveLayer("rings-line");
   }
 
-  // Place labels live in a sibling overlay map above the dots canvas
+  // City names last so they sit above heat, counties, parcels, and rings
+  ensurePlaceLabels(map, satellite);
 }
 
 function setVis(map: maplibregl.Map, id: string, on: boolean) {
@@ -876,10 +932,8 @@ export function BessMap({
   states,
 }: BessMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const labelsContainerRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
-  const labelsMapRef = useRef<maplibregl.Map | null>(null);
   const popupRef = useRef<maplibregl.Popup | null>(null);
   const drawnSubsRef = useRef<DrawnSub[]>([]);
   const drawnProjsRef = useRef<DrawnProj[]>([]);
@@ -901,6 +955,13 @@ export function BessMap({
       knownLrid?: string
     ) => void
   >(() => {});
+  const flyToAddressRef = useRef<
+    (
+      lng: number,
+      lat: number,
+      meta?: { lrid?: string; kind?: string; substationId?: string }
+    ) => void
+  >(() => {});
 
   const filters = useAppStore((s) => s.filters);
   const setFilters = useAppStore((s) => s.setFilters);
@@ -911,6 +972,12 @@ export function BessMap({
   const setParcelPopup = useAppStore((s) => s.setParcelPopup);
   const closeParcelPopup = useAppStore((s) => s.closeParcelPopup);
   const openParcelDetails = useAppStore((s) => s.openParcelDetails);
+  const parcelLists = useAppStore((s) => s.parcelLists);
+  const reviewIdsRef = useRef<{
+    yes: Set<string>;
+    no: Set<string>;
+    all: Set<string>;
+  }>({ yes: new Set(), no: new Set(), all: new Set() });
 
   const [mapReady, setMapReady] = useState(false);
   const [status, setStatus] = useState("Initializing map…");
@@ -1118,8 +1185,7 @@ export function BessMap({
   // Create map
   useEffect(() => {
     const el = containerRef.current;
-    const labelsEl = labelsContainerRef.current;
-    if (!el || !labelsEl) return;
+    if (!el) return;
 
     let cancelled = false;
     setMapReady(false);
@@ -1137,32 +1203,6 @@ export function BessMap({
     });
     mapRef.current = map;
 
-    // City / place labels above the dots canvas so names stay readable
-    const labelsMap = new maplibregl.Map({
-      container: labelsEl,
-      style: buildLabelsStyle(initialSatellite),
-      center: [-96.0, 39.0],
-      zoom: 3.5,
-      interactive: false,
-      attributionControl: false,
-      fadeDuration: 0,
-    });
-    labelsMapRef.current = labelsMap;
-
-    const syncLabelsCamera = () => {
-      if (cancelled || !labelsMapRef.current) return;
-      labelsMap.jumpTo({
-        center: map.getCenter(),
-        zoom: map.getZoom(),
-        bearing: map.getBearing(),
-        pitch: map.getPitch(),
-      });
-    };
-    map.on("move", syncLabelsCamera);
-    map.on("zoom", syncLabelsCamera);
-    map.on("pitch", syncLabelsCamera);
-    map.on("rotate", syncLabelsCamera);
-
     map.addControl(
       new maplibregl.NavigationControl({ showCompass: false }),
       "top-right"
@@ -1178,15 +1218,15 @@ export function BessMap({
     const onLoad = () => {
       if (cancelled) return;
       try {
-        ensureBaseLayers(map);
+        ensureBaseLayers(map, initialSatellite);
         const f = filtersRef.current;
         applyParcelBasemapPaint(map, f.satellite);
         setParcelLayerVisibility(map, f.showParcels, f.satellite);
+        // Re-assert labels on top after other layers settle
+        ensurePlaceLabels(map, f.satellite);
         setMapReady(true);
         setStatus("");
         map.resize();
-        labelsMap.resize();
-        syncLabelsCamera();
         paintRef.current();
       } catch (err) {
         console.error(err);
@@ -1332,8 +1372,6 @@ export function BessMap({
     const ro = new ResizeObserver(() => {
       if (!cancelled) {
         map.resize();
-        labelsMap.resize();
-        syncLabelsCamera();
         paintRef.current();
       }
     });
@@ -1344,8 +1382,6 @@ export function BessMap({
       parcelAbortRef.current?.abort();
       ro.disconnect();
       popupRef.current?.remove();
-      labelsMap.remove();
-      labelsMapRef.current = null;
       map.remove();
       mapRef.current = null;
       setMapReady(false);
@@ -1378,6 +1414,15 @@ export function BessMap({
     parcelAbortRef.current?.abort();
     const ac = new AbortController();
     parcelAbortRef.current = ac;
+    const finishWithTileFallback = () => {
+      if (!hasTileProps) {
+        setParcelPopup(null, null);
+        return;
+      }
+      const fallback = buildParcelViews(mapped, lat, lng, lrid, false);
+      setParcelPopup(fallback.popup, fallback.focus);
+    };
+
     fetchLandRecordsParcel({
       lat,
       lng,
@@ -1385,7 +1430,12 @@ export function BessMap({
       signal: ac.signal,
     })
       .then((result) => {
-        if (!result || ac.signal.aborted) return;
+        if (ac.signal.aborted) return;
+        // WFS misses some states (e.g. TX); tile attributes are still usable
+        if (!result) {
+          finishWithTileFallback();
+          return;
+        }
         const featureId = result.parcelId || lrid;
         const highlightId = result.lrid || lrid || featureId;
         if (highlightId && mapRef.current) {
@@ -1414,12 +1464,7 @@ export function BessMap({
       })
       .catch((err) => {
         if (err instanceof Error && err.name === "AbortError") return;
-        if (!hasTileProps) {
-          setParcelPopup(null, null);
-          return;
-        }
-        const fallback = buildParcelViews(mapped, lat, lng, lrid, false);
-        setParcelPopup(fallback.popup, fallback.focus);
+        finishWithTileFallback();
       });
   };
 
@@ -1438,8 +1483,7 @@ export function BessMap({
     if (satRef.current === filters.satellite) return;
     satRef.current = filters.satellite;
     applyBasemap(map, filters.satellite);
-    const labelsMap = labelsMapRef.current;
-    if (labelsMap) applyLabelTiles(labelsMap, filters.satellite);
+    applyLabelTiles(map, filters.satellite);
     applyParcelBasemapPaint(map, filters.satellite);
     setParcelLayerVisibility(
       map,
@@ -1463,6 +1507,8 @@ export function BessMap({
     setVis(map, "lines-layer", filters.showLines);
     applyParcelBasemapPaint(map, filters.satellite);
     setParcelLayerVisibility(map, filters.showParcels, filters.satellite);
+    // Labels must stay above toggled layers
+    ensurePlaceLabels(map, filters.satellite);
 
     const co = countiesRef.current;
     if (co && map.getSource("counties")) {
@@ -1502,6 +1548,7 @@ export function BessMap({
     } else {
       (map.getSource("rings") as maplibregl.GeoJSONSource).setData(emptyFC());
     }
+    ensurePlaceLabels(map, filtersRef.current.satellite);
   }, [mapReady, selected?.id, selected?.longitude, selected?.latitude]);
 
   // Heat + canvas dots + status — read drawn* refs; fixed 2-dep array (HMR-safe)
@@ -1664,6 +1711,64 @@ export function BessMap({
     return () => window.removeEventListener("bess:fly-to", handler);
   }, []);
 
+  // Deep link from /p/{token} → /?lat=&lng=&lrid=
+  useEffect(() => {
+    if (!mapReady) return;
+    const sp = new URLSearchParams(window.location.search);
+    const lat = parseFloat(sp.get("lat") || "");
+    const lng = parseFloat(sp.get("lng") || "");
+    const lrid = (sp.get("lrid") || "").trim();
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    flyToAddressRef.current?.(lng, lat, lrid ? { lrid } : undefined);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("lat");
+    url.searchParams.delete("lng");
+    url.searchParams.delete("lrid");
+    window.history.replaceState({}, "", url.pathname + url.search + url.hash);
+  }, [mapReady]);
+
+  // Color Yes (green) / No (red) reviewed parcels via feature-state
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+
+    const yes = new Set<string>();
+    const no = new Set<string>();
+    for (const list of parcelLists) {
+      for (const item of list.items) {
+        for (const id of reviewFeatureIds(item)) {
+          if (list.id === YES_PARCEL_LIST_ID) yes.add(id);
+          if (list.id === NO_PARCEL_LIST_ID) no.add(id);
+        }
+      }
+    }
+
+    for (const id of reviewIdsRef.current.all) {
+      if (!yes.has(id) && !no.has(id)) setParcelReviewState(map, id, null);
+    }
+    for (const id of yes) setParcelReviewState(map, id, "yes");
+    for (const id of no) setParcelReviewState(map, id, "no");
+    reviewIdsRef.current = { yes, no, all: new Set([...yes, ...no]) };
+  }, [parcelLists, mapReady]);
+
+  // Re-apply review colors as tiles stream in
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    const reapply = () => {
+      for (const id of reviewIdsRef.current.yes) {
+        setParcelReviewState(map, id, "yes");
+      }
+      for (const id of reviewIdsRef.current.no) {
+        setParcelReviewState(map, id, "no");
+      }
+    };
+    map.on("idle", reapply);
+    return () => {
+      map.off("idle", reapply);
+    };
+  }, [mapReady]);
+
   const flyToAddress = (
     lng: number,
     lat: number,
@@ -1728,20 +1833,16 @@ export function BessMap({
       map.once("idle", syncHighlight);
     });
   };
+  flyToAddressRef.current = flyToAddress;
 
   return (
     <div className="relative h-full min-h-[320px] w-full bg-[#e8eef4]">
       <div ref={containerRef} className="absolute inset-0 h-full w-full" />
-      {/* 2D overlay — WebGL circle layers were invisible on some setups */}
+      {/* 2D overlay — WebGL circle layers were invisible on some setups.
+          Canvas is transparent except dots, so place-labels on the map show through. */}
       <canvas
         ref={overlayRef}
         className="pointer-events-none absolute inset-0 z-10 h-full w-full"
-        aria-hidden
-      />
-      {/* Place labels above dots + heat so city/state names stay readable */}
-      <div
-        ref={labelsContainerRef}
-        className="pointer-events-none absolute inset-0 z-20 h-full w-full bg-transparent [&_.maplibregl-canvas]:bg-transparent [&_.maplibregl-canvas]:!outline-none [&_.maplibregl-map]:bg-transparent"
         aria-hidden
       />
       <div className="pointer-events-none absolute left-3 top-3 z-50 flex w-[min(100%-1.5rem,24rem)] flex-col gap-2">

@@ -16,8 +16,16 @@ import type {
   SelectedParcel,
 } from "./landrecords/parcelPropertyMap";
 import { toParcelListItem } from "./landrecords/parcelListItem";
+import {
+  ensureReviewParcelLists,
+  getParcelReviewFromLists,
+  NO_PARCEL_LIST_ID,
+  YES_PARCEL_LIST_ID,
+  type ParcelReview,
+} from "./lists/parcelReview";
 
 export type PanelTab = "details" | "parcel" | "lists" | "about";
+export type { ParcelReview };
 
 interface AppState {
   filters: AppFilters;
@@ -64,8 +72,21 @@ interface AppState {
   removeParcelFromList: (listId: string, parcelId: string) => void;
   updateParcelNote: (listId: string, parcelId: string, note: string) => void;
   isParcelInActiveList: (parcelId: string) => boolean;
-  /** Add/remove parcelFocus (or selectedParcel) from the active parcel list. */
+  /** @deprecated Prefer setParcelReview — toggles Yes list membership */
   toggleParcelInActiveList: (parcel?: SelectedParcel | null) => void;
+  getParcelReview: (parcelId: string) => ParcelReview | null;
+  /** Put parcel on Yes or No (exclusive). Pass null to clear review. */
+  setParcelReview: (
+    parcel: SelectedParcel | null | undefined,
+    review: ParcelReview | null
+  ) => void;
+  /** Shared global lists (Vercel Blob) sync metadata */
+  listsHydrated: boolean;
+  listsSyncing: boolean;
+  listsVersion: number;
+  listsUpdatedAt: string | null;
+  listsStatus: "loading" | "live" | "error";
+  listsError: string;
 }
 
 function uid() {
@@ -193,32 +214,38 @@ export const useAppStore = create<AppState>()(
         return Boolean(list?.items.some((i) => i.substationId === substationId));
       },
 
-      parcelLists: [],
-      activeParcelListId: null,
-      createParcelList: (name) => {
-        const list: ParcelList = {
-          id: uid(),
-          name: name.trim() || "Untitled parcel list",
-          createdAt: new Date().toISOString(),
-          items: [],
-        };
+      parcelLists: ensureReviewParcelLists([]),
+      activeParcelListId: YES_PARCEL_LIST_ID,
+      createParcelList: () => {
+        // Fixed Yes/No lists only — ensure they exist
         set((s) => ({
-          parcelLists: [...s.parcelLists, list],
-          activeParcelListId: list.id,
+          parcelLists: ensureReviewParcelLists(s.parcelLists),
+          activeParcelListId: s.activeParcelListId ?? YES_PARCEL_LIST_ID,
         }));
       },
-      deleteParcelList: (id) =>
-        set((s) => ({
-          parcelLists: s.parcelLists.filter((l) => l.id !== id),
-          activeParcelListId:
-            s.activeParcelListId === id ? null : s.activeParcelListId,
-        })),
+      deleteParcelList: () => {
+        /* Yes/No lists are permanent */
+      },
       setActiveParcelListId: (activeParcelListId) =>
-        set({ activeParcelListId }),
-      addParcelToList: (listId, item) =>
-        set((s) => ({
-          parcelLists: s.parcelLists.map((l) => {
-            if (l.id !== listId) return l;
+        set({
+          activeParcelListId:
+            activeParcelListId === NO_PARCEL_LIST_ID
+              ? NO_PARCEL_LIST_ID
+              : YES_PARCEL_LIST_ID,
+        }),
+      addParcelToList: (listId, item) => {
+        if (listId !== YES_PARCEL_LIST_ID && listId !== NO_PARCEL_LIST_ID) {
+          return;
+        }
+        set((s) => {
+          const lists = ensureReviewParcelLists(s.parcelLists).map((l) => {
+            // Exclusive membership
+            if (l.id !== listId) {
+              return {
+                ...l,
+                items: l.items.filter((i) => i.parcelId !== item.parcelId),
+              };
+            }
             if (l.items.some((i) => i.parcelId === item.parcelId)) return l;
             return {
               ...l,
@@ -231,11 +258,13 @@ export const useAppStore = create<AppState>()(
                 },
               ],
             };
-          }),
-        })),
+          });
+          return { parcelLists: lists, activeParcelListId: listId };
+        });
+      },
       removeParcelFromList: (listId, parcelId) =>
         set((s) => ({
-          parcelLists: s.parcelLists.map((l) =>
+          parcelLists: ensureReviewParcelLists(s.parcelLists).map((l) =>
             l.id === listId
               ? {
                   ...l,
@@ -246,7 +275,7 @@ export const useAppStore = create<AppState>()(
         })),
       updateParcelNote: (listId, parcelId, note) =>
         set((s) => ({
-          parcelLists: s.parcelLists.map((l) =>
+          parcelLists: ensureReviewParcelLists(s.parcelLists).map((l) =>
             l.id === listId
               ? {
                   ...l,
@@ -258,34 +287,74 @@ export const useAppStore = create<AppState>()(
           ),
         })),
       isParcelInActiveList: (parcelId) => {
-        const { activeParcelListId, parcelLists } = get();
-        if (!activeParcelListId) return false;
-        const list = parcelLists.find((l) => l.id === activeParcelListId);
-        return Boolean(list?.items.some((i) => i.parcelId === parcelId));
+        return get().getParcelReview(parcelId) != null;
       },
       toggleParcelInActiveList: (parcel) => {
         const target =
           parcel ?? get().parcelFocus ?? get().selectedParcel ?? null;
         if (!target) return;
-        let listId = get().activeParcelListId;
-        if (!listId) {
-          get().createParcelList("My parcels");
-          listId = get().activeParcelListId;
-        }
-        if (!listId) return;
-        if (get().isParcelInActiveList(target.id)) {
-          get().removeParcelFromList(listId, target.id);
-        } else {
-          get().addParcelToList(listId, toParcelListItem(target));
-        }
+        const current = get().getParcelReview(target.id);
+        get().setParcelReview(target, current === "yes" ? null : "yes");
       },
+      getParcelReview: (parcelId) =>
+        getParcelReviewFromLists(get().parcelLists, parcelId),
+      setParcelReview: (parcel, review) => {
+        const target =
+          parcel ?? get().parcelFocus ?? get().selectedParcel ?? null;
+        if (!target) return;
+        const item = toParcelListItem(target);
+        const sameParcel = (i: { parcelId: string; lrid?: string }) =>
+          i.parcelId === item.parcelId ||
+          (!!item.lrid &&
+            (i.lrid === item.lrid || i.parcelId === item.lrid)) ||
+          (!!i.lrid && i.lrid === item.parcelId);
+        set((s) => {
+          let lists = ensureReviewParcelLists(s.parcelLists).map((l) => ({
+            ...l,
+            items: l.items.filter((i) => !sameParcel(i)),
+          }));
+          if (review === "yes" || review === "no") {
+            const listId =
+              review === "yes" ? YES_PARCEL_LIST_ID : NO_PARCEL_LIST_ID;
+            const priorNote =
+              s.parcelLists
+                .flatMap((l) => l.items)
+                .find((i) => sameParcel(i))?.note ?? "";
+            lists = lists.map((l) =>
+              l.id === listId
+                ? {
+                    ...l,
+                    items: [
+                      ...l.items,
+                      {
+                        ...item,
+                        note: priorNote,
+                        addedAt: new Date().toISOString(),
+                      },
+                    ],
+                  }
+                : l
+            );
+          }
+          return {
+            parcelLists: lists,
+            activeParcelListId:
+              review === "no" ? NO_PARCEL_LIST_ID : YES_PARCEL_LIST_ID,
+          };
+        });
+      },
+      listsHydrated: false,
+      listsSyncing: false,
+      listsVersion: 0,
+      listsUpdatedAt: null,
+      listsStatus: "loading",
+      listsError: "",
     }),
     {
       name: "power-poker-v1",
+      // Lists live in shared Blob storage — only keep per-browser UI prefs here
       partialize: (s) => ({
-        shortlists: s.shortlists,
         activeListId: s.activeListId,
-        parcelLists: s.parcelLists,
         activeParcelListId: s.activeParcelListId,
         filters: s.filters,
       }),
@@ -299,9 +368,8 @@ export const useAppStore = create<AppState>()(
         };
         return {
           ...current,
-          ...p,
           filters: { ...DEFAULT_FILTERS, ...persistedFilters },
-          parcelLists: p.parcelLists ?? current.parcelLists,
+          activeListId: p.activeListId ?? current.activeListId,
           activeParcelListId:
             p.activeParcelListId ?? current.activeParcelListId,
         };

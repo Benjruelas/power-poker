@@ -164,6 +164,8 @@ export interface Shortlist {
 
 export interface ParcelListItem {
   parcelId: string;
+  /** LandRecords lrid — used for MapLibre feature-state review coloring */
+  lrid?: string;
   address: string;
   ownerName: string;
   county: string;

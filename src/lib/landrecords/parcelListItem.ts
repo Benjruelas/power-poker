@@ -16,6 +16,7 @@ export function toParcelListItem(
     parseNum(parcel.properties.GIS_ACRES);
   return {
     parcelId: parcel.id,
+    lrid: parcel.lrid || undefined,
     address: parcel.address || String(parcel.properties.SITUS_ADDR || parcel.id),
     ownerName: String(parcel.properties.OWNER_NAME || ""),
     county: String(parcel.properties.COUNTY || ""),

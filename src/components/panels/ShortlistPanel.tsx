@@ -2,6 +2,10 @@
 
 import { useMemo, useState } from "react";
 import { Download, Plus, Trash2 } from "lucide-react";
+import {
+  NO_PARCEL_LIST_ID,
+  YES_PARCEL_LIST_ID,
+} from "@/lib/lists/parcelReview";
 import { useAppStore } from "@/lib/store";
 import {
   exportParcelListCsv,
@@ -28,6 +32,18 @@ type ParcelSortKey = "address" | "owner" | "county" | "acres";
 
 export function ShortlistPanel() {
   const [kind, setKind] = useState<ListKind>("sites");
+  const listsStatus = useAppStore((s) => s.listsStatus);
+  const listsSyncing = useAppStore((s) => s.listsSyncing);
+  const listsError = useAppStore((s) => s.listsError);
+
+  const syncLabel =
+    listsStatus === "loading"
+      ? "Loading shared lists…"
+      : listsSyncing
+        ? "Saving to team…"
+        : listsStatus === "error"
+          ? listsError || "Sync error"
+          : "Shared with team";
 
   return (
     <div className="flex h-full flex-col">
@@ -53,6 +69,16 @@ export function ShortlistPanel() {
           </button>
         ))}
       </div>
+      <p
+        className={cn(
+          "border-b px-4 py-1.5 text-[11px]",
+          listsStatus === "error"
+            ? "bg-amber-50 text-amber-800"
+            : "text-muted-foreground"
+        )}
+      >
+        {syncLabel}
+      </p>
       {kind === "sites" ? <SiteListsSection /> : <ParcelListsSection />}
     </div>
   );
@@ -243,19 +269,19 @@ function SiteListsSection() {
 function ParcelListsSection() {
   const parcelLists = useAppStore((s) => s.parcelLists);
   const activeParcelListId = useAppStore((s) => s.activeParcelListId);
-  const createParcelList = useAppStore((s) => s.createParcelList);
-  const deleteParcelList = useAppStore((s) => s.deleteParcelList);
   const setActiveParcelListId = useAppStore((s) => s.setActiveParcelListId);
   const updateParcelNote = useAppStore((s) => s.updateParcelNote);
   const removeParcelFromList = useAppStore((s) => s.removeParcelFromList);
   const setParcelPopup = useAppStore((s) => s.setParcelPopup);
   const openParcelDetails = useAppStore((s) => s.openParcelDetails);
 
-  const [newName, setNewName] = useState("");
   const [sortKey, setSortKey] = useState<ParcelSortKey>("address");
 
+  const yesList = parcelLists.find((l) => l.id === YES_PARCEL_LIST_ID);
+  const noList = parcelLists.find((l) => l.id === NO_PARCEL_LIST_ID);
   const active =
-    parcelLists.find((l) => l.id === activeParcelListId) ?? parcelLists[0];
+    parcelLists.find((l) => l.id === activeParcelListId) ?? yesList ?? null;
+  const isYes = active?.id === YES_PARCEL_LIST_ID;
 
   const items = useMemo(() => {
     const list = [...(active?.items ?? [])];
@@ -269,11 +295,6 @@ function ParcelListsSection() {
     return list;
   }, [active?.items, sortKey]);
 
-  const onCreate = () => {
-    createParcelList(newName || `Parcel list ${parcelLists.length + 1}`);
-    setNewName("");
-  };
-
   const onExport = () => {
     if (!active) return;
     downloadCsv(exportParcelListCsv(items), active.name);
@@ -282,6 +303,7 @@ function ParcelListsSection() {
   const openItem = (item: (typeof items)[number]) => {
     const focus = {
       id: item.parcelId,
+      lrid: item.lrid,
       lat: item.latitude,
       lng: item.longitude,
       address: item.address,
@@ -300,7 +322,12 @@ function ParcelListsSection() {
     openParcelDetails();
     window.dispatchEvent(
       new CustomEvent("bess:fly-to", {
-        detail: { lng: item.longitude, lat: item.latitude, zoom: 16 },
+        detail: {
+          lng: item.longitude,
+          lat: item.latitude,
+          zoom: 16,
+          ...(item.lrid ? { lrid: item.lrid } : {}),
+        },
       })
     );
   };
@@ -308,61 +335,41 @@ function ParcelListsSection() {
   return (
     <>
       <div className="space-y-3 border-b px-4 py-3">
-        <h2 className="text-sm font-semibold">Parcel lists</h2>
-        <div className="flex gap-2">
-          <Input
-            placeholder="New list name"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && onCreate()}
-          />
-          <Button size="sm" onClick={onCreate}>
-            <Plus className="size-3.5" />
-            Add
-          </Button>
-        </div>
-        {parcelLists.length > 0 && (
-          <div className="flex items-center gap-2">
-            <Select
-              value={active?.id}
-              onValueChange={(v) => setActiveParcelListId(v ?? null)}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Select list">
-                  {(value) => {
-                    const list = parcelLists.find((l) => l.id === value);
-                    return list
-                      ? `${list.name} (${list.items.length})`
-                      : null;
-                  }}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {parcelLists.map((l) => (
-                  <SelectItem key={l.id} value={l.id}>
-                    {l.name} ({l.items.length})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {active && (
-              <Button
-                size="icon-sm"
-                variant="ghost"
-                onClick={() => deleteParcelList(active.id)}
-                title="Delete list"
-              >
-                <Trash2 className="size-3.5" />
-              </Button>
+        <h2 className="text-sm font-semibold">Parcel review</h2>
+        <p className="text-xs text-muted-foreground">
+          Shared Yes / No lists. Reviewed parcels turn green or red on the map.
+        </p>
+        <div className="flex gap-1 rounded-lg bg-muted/60 p-0.5">
+          <button
+            type="button"
+            onClick={() => setActiveParcelListId(YES_PARCEL_LIST_ID)}
+            className={cn(
+              "flex-1 rounded-md px-2 py-1.5 text-xs font-semibold transition-colors",
+              isYes
+                ? "bg-emerald-600 text-white shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
             )}
-          </div>
-        )}
+          >
+            Yes ({yesList?.items.length ?? 0})
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveParcelListId(NO_PARCEL_LIST_ID)}
+            className={cn(
+              "flex-1 rounded-md px-2 py-1.5 text-xs font-semibold transition-colors",
+              !isYes
+                ? "bg-red-600 text-white shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            No ({noList?.items.length ?? 0})
+          </button>
+        </div>
       </div>
 
       {!active ? (
         <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-muted-foreground">
-          Create a parcel list, then add parcels from the map popup or details
-          panel.
+          Loading review lists…
         </div>
       ) : (
         <>
@@ -400,11 +407,19 @@ function ParcelListsSection() {
             <ul className="space-y-2 px-4 py-3">
               {items.length === 0 && (
                 <li className="text-sm text-muted-foreground">
-                  No parcels yet. Click a parcel, then use Add to list.
+                  No parcels yet. Open a parcel and mark Yes or No.
                 </li>
               )}
               {items.map((item) => (
-                <li key={item.parcelId} className="rounded-lg border p-3">
+                <li
+                  key={item.parcelId}
+                  className={cn(
+                    "rounded-lg border p-3",
+                    isYes
+                      ? "border-emerald-200 bg-emerald-500/5"
+                      : "border-red-200 bg-red-500/5"
+                  )}
+                >
                   <div className="flex items-start justify-between gap-2">
                     <button
                       type="button"
@@ -432,6 +447,7 @@ function ParcelListsSection() {
                     <Button
                       size="icon-xs"
                       variant="ghost"
+                      title="Clear review"
                       onClick={() =>
                         removeParcelFromList(active.id, item.parcelId)
                       }

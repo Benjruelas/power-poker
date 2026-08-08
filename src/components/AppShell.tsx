@@ -8,6 +8,7 @@ import { BatteryCharging, ListFilter, MapPinned, Info, LandPlot } from "lucide-r
 import { FilterSidebar } from "@/components/filters/FilterSidebar";
 import { MobileFilters } from "@/components/filters/MobileFilters";
 import { MapLegend } from "@/components/map/MapLegend";
+import { SharedListsSync } from "@/components/lists/SharedListsSync";
 import { AboutPanel } from "@/components/panels/AboutPanel";
 import { DetailPanel } from "@/components/panels/DetailPanel";
 import { ParcelDetailsPanel } from "@/components/panels/ParcelDetailsPanel";
@@ -132,6 +133,7 @@ export function AppShell() {
 
   return (
     <div className="flex h-dvh flex-col bg-background text-foreground">
+      <SharedListsSync />
       <header className="flex items-center justify-between gap-3 border-b px-4 py-2.5">
         <div className="flex items-center gap-2.5">
           <div className="flex size-8 items-center justify-center rounded-lg bg-emerald-600 text-white">
@@ -236,7 +238,7 @@ export function AppShell() {
               <DetailPanel />
             </TabsContent>
             <TabsContent value="parcel" className="mt-0 min-h-0 flex-1">
-              <ParcelDetailsPanel />
+              <ParcelDetailsPanel substations={substations} />
             </TabsContent>
             <TabsContent value="lists" className="mt-0 min-h-0 flex-1">
               <ShortlistPanel />

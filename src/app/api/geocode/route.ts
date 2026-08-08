@@ -122,13 +122,27 @@ export async function GET(req: Request) {
   }
 
   try {
-    const [mapbox, parcels] = await Promise.all([
-      accessToken
-        ? searchMapbox(q, accessToken, proximity).catch(() => [])
-        : Promise.resolve([] as GeocodeSuggestion[]),
+    // Mapbox is usually <300ms; LandRecords WFS can hang. Cap total wait so
+    // address results aren't held hostage by owner/APN lookups.
+    const TOTAL_BUDGET_MS = 2200;
+    const started = Date.now();
+    const mapboxPromise = accessToken
+      ? searchMapbox(q, accessToken, proximity).catch(() => [])
+      : Promise.resolve([] as GeocodeSuggestion[]);
+    const parcelsPromise =
       hasLandRecords && q.length >= 3
-        ? searchParcelsByOwnerOrId(q, proximity).catch(() => [])
-        : Promise.resolve([] as GeocodeSuggestion[]),
+        ? searchParcelsByOwnerOrId(q, proximity, { timeoutMs: 1800 }).catch(
+            () => []
+          )
+        : Promise.resolve([] as GeocodeSuggestion[]);
+
+    const mapbox = await mapboxPromise;
+    const remaining = Math.max(0, TOTAL_BUDGET_MS - (Date.now() - started));
+    const parcels = await Promise.race([
+      parcelsPromise,
+      new Promise<GeocodeSuggestion[]>((resolve) =>
+        setTimeout(() => resolve([]), remaining)
+      ),
     ]);
 
     // Owner / APN first, then addresses

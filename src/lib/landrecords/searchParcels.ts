@@ -340,16 +340,19 @@ export async function searchParcelsByOwnerOrId(
   if (q.length < 3) return [];
 
   const signal = options?.signal;
-  const timeoutMs = options?.timeoutMs ?? 5000;
-  const nearTimeoutMs = options?.timeoutMs ?? 8000;
+  // Autocomplete budgets — nationwide owner LIKE is the slow path
+  const budget = options?.timeoutMs ?? 2000;
+  const exactTimeoutMs = Math.min(budget, 2000);
+  const nearTimeoutMs = Math.min(budget + 400, 2400);
   const tasks: Promise<GeocodeSuggestion[]>[] = [];
 
   const asParcel = looksLikeParcelId(q) || LRID_RE.test(q);
   const asOwner = looksLikeOwnerQuery(q);
 
   if (asParcel) {
+    // Exact APN / LRID first — usually the fast indexed path
     tasks.push(
-      withTimeout(searchExactParcelIds(q, apiKey, signal), timeoutMs, [])
+      withTimeout(searchExactParcelIds(q, apiKey, signal), exactTimeoutMs, [])
     );
     if (proximity && !LRID_RE.test(q)) {
       tasks.push(
@@ -363,7 +366,8 @@ export async function searchParcelsByOwnerOrId(
   }
 
   if (asOwner) {
-    tasks.push(withTimeout(searchOwnerPrefix(q, apiKey, signal), timeoutMs, []));
+    // Prefer proximity contains when we have a map center (smaller scan).
+    // Nationwide prefix only as fallback / when zoomed out.
     if (proximity) {
       tasks.push(
         withTimeout(
@@ -371,6 +375,20 @@ export async function searchParcelsByOwnerOrId(
           nearTimeoutMs,
           []
         )
+      );
+      // Prefix nationwide only if query is specific enough (≥5 chars)
+      if (q.length >= 5) {
+        tasks.push(
+          withTimeout(
+            searchOwnerPrefix(q, apiKey, signal),
+            exactTimeoutMs,
+            []
+          )
+        );
+      }
+    } else {
+      tasks.push(
+        withTimeout(searchOwnerPrefix(q, apiKey, signal), exactTimeoutMs, [])
       );
     }
   }

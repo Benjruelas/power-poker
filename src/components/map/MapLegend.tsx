@@ -84,15 +84,34 @@ export function MapLegend({
             </span>
           ))}
         </div>
-        <div className="mt-3 mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-500">
-          <span
-            className="inline-block size-2.5 shrink-0 rounded-[2px] border-2 border-[#2563eb] bg-transparent"
-            aria-hidden
-          />
+        <div className="mt-3 mb-1 text-[10px] uppercase tracking-wide text-slate-500">
           Parcels
         </div>
+        <div className="mb-1 flex flex-wrap gap-x-3 gap-y-1 text-slate-800">
+          <span className="inline-flex items-center gap-1.5">
+            <span
+              className="inline-block size-2.5 shrink-0 rounded-[2px] border-2 border-[#2563eb] bg-transparent"
+              aria-hidden
+            />
+            Outline
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span
+              className="inline-block size-2.5 shrink-0 rounded-[2px] border border-[#15803d] bg-[#16a34a]/70"
+              aria-hidden
+            />
+            Yes
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span
+              className="inline-block size-2.5 shrink-0 rounded-[2px] border border-[#b91c1c] bg-[#dc2626]/70"
+              aria-hidden
+            />
+            No
+          </span>
+        </div>
         <p className="text-[10px] leading-snug text-slate-500">
-          Parcel outlines appear at zoom 15+
+          Outlines at zoom 15+. Reviewed parcels stay green (Yes) or red (No).
         </p>
         <div className="mt-3 mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-500">
           <span
