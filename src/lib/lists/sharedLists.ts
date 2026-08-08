@@ -1,5 +1,9 @@
 import type { ParcelList, Shortlist } from "@/lib/types";
 import { ensureReviewParcelLists } from "@/lib/lists/parcelReview";
+import {
+  ensureReviewShortlists,
+  shortlistsHaveItems,
+} from "@/lib/lists/substationReview";
 
 export type SharedListsDocument = {
   version: number;
@@ -14,7 +18,7 @@ export function emptySharedLists(): SharedListsDocument {
   return {
     version: 0,
     updatedAt: new Date(0).toISOString(),
-    shortlists: [],
+    shortlists: ensureReviewShortlists([]),
     parcelLists: ensureReviewParcelLists([]),
   };
 }
@@ -24,6 +28,7 @@ export function normalizeSharedLists(
 ): SharedListsDocument {
   return {
     ...doc,
+    shortlists: ensureReviewShortlists(doc.shortlists ?? []),
     parcelLists: ensureReviewParcelLists(doc.parcelLists ?? []),
   };
 }
@@ -43,15 +48,16 @@ export function mergeLocalIntoShared(
   server: SharedListsDocument,
   local: { shortlists?: Shortlist[]; parcelLists?: ParcelList[] }
 ): SharedListsDocument {
+  const normalized = normalizeSharedLists(server);
   const hasServer =
-    server.shortlists.length > 0 ||
-    server.parcelLists.some((l) => l.items.length > 0);
-  if (hasServer) return normalizeSharedLists(server);
+    shortlistsHaveItems(normalized.shortlists) ||
+    normalized.parcelLists.some((l) => l.items.length > 0);
+  if (hasServer) return normalized;
 
   const shortlists = local.shortlists ?? [];
   const parcelLists = local.parcelLists ?? [];
   if (shortlists.length === 0 && parcelLists.length === 0) {
-    return normalizeSharedLists(server);
+    return normalized;
   }
 
   return normalizeSharedLists({

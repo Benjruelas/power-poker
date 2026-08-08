@@ -26,7 +26,10 @@ export function AboutPanel({ meta }: { meta: DataMeta | null }) {
             <li>Filter by voltage, score, crowding, county, and queue fuel.</li>
             <li>Click a substation — rings show 1 mi (parcel) and 5 mi (queue) radii.</li>
             <li>Use the sizing calculator for acreage / MW estimates.</li>
-            <li>Bookmark sites and parcels into lists and export CSV.</li>
+            <li>
+              Mark sites and parcels Yes/No (reviewed sites leave the map) and
+              export CSV.
+            </li>
           </ol>
         </section>
 

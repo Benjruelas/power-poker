@@ -58,10 +58,13 @@ export function MapLegend({
               "linear-gradient(90deg,#ef4444,#f59e0b,#84cc16,#22c55e,#0d9488)",
           }}
         />
-        <div className="mb-3 flex justify-between text-[10px] text-slate-500">
+        <div className="mb-1 flex justify-between text-[10px] text-slate-500">
           <span>Low</span>
           <span>High</span>
         </div>
+        <p className="mb-3 text-[10px] leading-snug text-slate-500">
+          Yes/No reviewed sites are hidden from the map.
+        </p>
         <div className="mb-1 text-[10px] uppercase tracking-wide text-slate-500">
           Queue projects
         </div>

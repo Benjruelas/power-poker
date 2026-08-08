@@ -4,6 +4,10 @@ import { useEffect, useRef, useState } from "react";
 
 import { useAppStore } from "@/lib/store";
 import { ensureReviewParcelLists } from "@/lib/lists/parcelReview";
+import {
+  ensureReviewShortlists,
+  shortlistsHaveItems,
+} from "@/lib/lists/substationReview";
 import type { SharedListsDocument } from "@/lib/lists/sharedLists";
 import type { ParcelList, Shortlist } from "@/lib/types";
 
@@ -78,7 +82,7 @@ export function SharedListsSync() {
     applyingRemote.current = true;
     versionRef.current = doc.version;
     useAppStore.setState({
-      shortlists: doc.shortlists,
+      shortlists: ensureReviewShortlists(doc.shortlists),
       parcelLists: ensureReviewParcelLists(doc.parcelLists),
       listsVersion: doc.version,
       listsUpdatedAt: doc.updatedAt,
@@ -99,13 +103,15 @@ export function SharedListsSync() {
         if (cancelled) return;
 
         const migrated = localStorage.getItem(MIGRATE_FLAG) === "1";
-        if (
-          !migrated &&
-          doc.shortlists.length === 0 &&
-          doc.parcelLists.length === 0
-        ) {
+        const serverEmpty =
+          !shortlistsHaveItems(doc.shortlists) &&
+          !(doc.parcelLists ?? []).some((l) => l.items.length > 0);
+        if (!migrated && serverEmpty) {
           const legacy = readLegacyLocalLists();
-          if (legacy.shortlists.length || legacy.parcelLists.length) {
+          if (
+            shortlistsHaveItems(legacy.shortlists) ||
+            legacy.parcelLists.some((l) => l.items.length > 0)
+          ) {
             const result = await putLists({
               shortlists: legacy.shortlists,
               parcelLists: legacy.parcelLists,

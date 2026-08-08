@@ -23,9 +23,17 @@ import {
   YES_PARCEL_LIST_ID,
   type ParcelReview,
 } from "./lists/parcelReview";
+import {
+  ensureReviewShortlists,
+  getSubstationReviewFromLists,
+  NO_SUBSTATION_LIST_ID,
+  toShortlistItem,
+  YES_SUBSTATION_LIST_ID,
+  type SubstationReview,
+} from "./lists/substationReview";
 
 export type PanelTab = "details" | "parcel" | "lists" | "about";
-export type { ParcelReview };
+export type { ParcelReview, SubstationReview };
 
 interface AppState {
   filters: AppFilters;
@@ -49,8 +57,10 @@ interface AppState {
   setPanelTab: (tab: PanelTab) => void;
   shortlists: Shortlist[];
   activeListId: string | null;
+  /** @deprecated Fixed Yes/No lists only */
   createList: (name: string) => void;
   renameList: (id: string, name: string) => void;
+  /** @deprecated Yes/No lists are permanent */
   deleteList: (id: string) => void;
   setActiveListId: (id: string | null) => void;
   addToList: (
@@ -59,7 +69,14 @@ interface AppState {
   ) => void;
   removeFromList: (listId: string, substationId: string) => void;
   updateNote: (listId: string, substationId: string, note: string) => void;
+  /** @deprecated Prefer getSubstationReview */
   isInActiveList: (substationId: string) => boolean;
+  getSubstationReview: (substationId: string) => SubstationReview | null;
+  /** Put site on Yes or No (exclusive). Pass null to clear — shows on map again. */
+  setSubstationReview: (
+    substation: SubstationProperties | null | undefined,
+    review: SubstationReview | null
+  ) => void;
   parcelLists: ParcelList[];
   activeParcelListId: string | null;
   createParcelList: (name: string) => void;
@@ -89,8 +106,10 @@ interface AppState {
   listsError: string;
 }
 
-function uid() {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+function coerceSubstationListId(id: string | null | undefined): string {
+  return id === NO_SUBSTATION_LIST_ID
+    ? NO_SUBSTATION_LIST_ID
+    : YES_SUBSTATION_LIST_ID;
 }
 
 export const useAppStore = create<AppState>()(
@@ -138,38 +157,42 @@ export const useAppStore = create<AppState>()(
       closeParcelPopup: () => set({ parcelPopup: null, parcelFocus: null }),
       panelTab: "about",
       setPanelTab: (panelTab) => set({ panelTab }),
-      shortlists: [],
-      activeListId: null,
-      createList: (name) => {
-        const list: Shortlist = {
-          id: uid(),
-          name: name.trim() || "Untitled list",
-          createdAt: new Date().toISOString(),
-          items: [],
-        };
+      shortlists: ensureReviewShortlists([]),
+      activeListId: YES_SUBSTATION_LIST_ID,
+      createList: () => {
         set((s) => ({
-          shortlists: [...s.shortlists, list],
-          activeListId: list.id,
+          shortlists: ensureReviewShortlists(s.shortlists),
+          activeListId: coerceSubstationListId(s.activeListId),
         }));
       },
-      renameList: (id, name) =>
-        set((s) => ({
-          shortlists: s.shortlists.map((l) =>
-            l.id === id ? { ...l, name: name.trim() || l.name } : l
-          ),
-        })),
-      deleteList: (id) =>
-        set((s) => ({
-          shortlists: s.shortlists.filter((l) => l.id !== id),
-          activeListId: s.activeListId === id ? null : s.activeListId,
-        })),
-      setActiveListId: (activeListId) => set({ activeListId }),
-      addToList: (listId, item) =>
-        set((s) => ({
-          shortlists: s.shortlists.map((l) => {
-            if (l.id !== listId) return l;
-            if (l.items.some((i) => i.substationId === item.substationId))
+      renameList: () => {
+        /* Yes/No names are fixed */
+      },
+      deleteList: () => {
+        /* Yes/No lists are permanent */
+      },
+      setActiveListId: (activeListId) =>
+        set({ activeListId: coerceSubstationListId(activeListId) }),
+      addToList: (listId, item) => {
+        if (
+          listId !== YES_SUBSTATION_LIST_ID &&
+          listId !== NO_SUBSTATION_LIST_ID
+        ) {
+          return;
+        }
+        set((s) => {
+          const lists = ensureReviewShortlists(s.shortlists).map((l) => {
+            if (l.id !== listId) {
+              return {
+                ...l,
+                items: l.items.filter(
+                  (i) => i.substationId !== item.substationId
+                ),
+              };
+            }
+            if (l.items.some((i) => i.substationId === item.substationId)) {
               return l;
+            }
             return {
               ...l,
               items: [
@@ -181,11 +204,13 @@ export const useAppStore = create<AppState>()(
                 },
               ],
             };
-          }),
-        })),
+          });
+          return { shortlists: lists, activeListId: listId };
+        });
+      },
       removeFromList: (listId, substationId) =>
         set((s) => ({
-          shortlists: s.shortlists.map((l) =>
+          shortlists: ensureReviewShortlists(s.shortlists).map((l) =>
             l.id === listId
               ? {
                   ...l,
@@ -196,7 +221,7 @@ export const useAppStore = create<AppState>()(
         })),
       updateNote: (listId, substationId, note) =>
         set((s) => ({
-          shortlists: s.shortlists.map((l) =>
+          shortlists: ensureReviewShortlists(s.shortlists).map((l) =>
             l.id === listId
               ? {
                   ...l,
@@ -207,11 +232,52 @@ export const useAppStore = create<AppState>()(
               : l
           ),
         })),
-      isInActiveList: (substationId) => {
-        const { activeListId, shortlists } = get();
-        if (!activeListId) return false;
-        const list = shortlists.find((l) => l.id === activeListId);
-        return Boolean(list?.items.some((i) => i.substationId === substationId));
+      isInActiveList: (substationId) =>
+        get().getSubstationReview(substationId) != null,
+      getSubstationReview: (substationId) =>
+        getSubstationReviewFromLists(get().shortlists, substationId),
+      setSubstationReview: (substation, review) => {
+        const target = substation ?? get().selectedSubstation ?? null;
+        if (!target) return;
+        const item = toShortlistItem(target);
+        set((s) => {
+          let lists = ensureReviewShortlists(s.shortlists).map((l) => ({
+            ...l,
+            items: l.items.filter((i) => i.substationId !== item.substationId),
+          }));
+          if (review === "yes" || review === "no") {
+            const listId =
+              review === "yes"
+                ? YES_SUBSTATION_LIST_ID
+                : NO_SUBSTATION_LIST_ID;
+            const priorNote =
+              s.shortlists
+                .flatMap((l) => l.items)
+                .find((i) => i.substationId === item.substationId)?.note ?? "";
+            lists = lists.map((l) =>
+              l.id === listId
+                ? {
+                    ...l,
+                    items: [
+                      ...l.items,
+                      {
+                        ...item,
+                        note: priorNote,
+                        addedAt: new Date().toISOString(),
+                      },
+                    ],
+                  }
+                : l
+            );
+          }
+          return {
+            shortlists: lists,
+            activeListId:
+              review === "no"
+                ? NO_SUBSTATION_LIST_ID
+                : YES_SUBSTATION_LIST_ID,
+          };
+        });
       },
 
       parcelLists: ensureReviewParcelLists([]),
@@ -369,7 +435,9 @@ export const useAppStore = create<AppState>()(
         return {
           ...current,
           filters: { ...DEFAULT_FILTERS, ...persistedFilters },
-          activeListId: p.activeListId ?? current.activeListId,
+          activeListId: coerceSubstationListId(
+            p.activeListId ?? current.activeListId
+          ),
           activeParcelListId:
             p.activeParcelListId ?? current.activeParcelListId,
         };

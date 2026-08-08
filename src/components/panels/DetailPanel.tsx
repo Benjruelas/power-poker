@@ -1,13 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import {
-  BookmarkPlus,
-  BookmarkCheck,
-  ExternalLink,
-  MapPin,
-  X,
-} from "lucide-react";
+import { ExternalLink, MapPin, X } from "lucide-react";
 import { useAppStore } from "@/lib/store";
 import {
   estimateAcres,
@@ -30,16 +24,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  SubstationReviewBadge,
+  SubstationReviewButtons,
+} from "@/components/substation/SubstationReviewButtons";
 
 export function DetailPanel() {
   const selected = useAppStore((s) => s.selectedSubstation);
   const setSelectedSubstation = useAppStore((s) => s.setSelectedSubstation);
-  const shortlists = useAppStore((s) => s.shortlists);
-  const activeListId = useAppStore((s) => s.activeListId);
-  const createList = useAppStore((s) => s.createList);
-  const addToList = useAppStore((s) => s.addToList);
-  const removeFromList = useAppStore((s) => s.removeFromList);
-  const isInActiveList = useAppStore((s) => s.isInActiveList);
+  const review = useAppStore((s) =>
+    selected ? s.getSubstationReview(selected.id) : null
+  );
 
   const [mw, setMw] = useState(100);
   const [duration, setDuration] = useState(4);
@@ -78,35 +73,11 @@ export function DetailPanel() {
     );
   }
 
-  const inList = isInActiveList(selected.id);
   const mapsUrl = `https://www.google.com/maps/@${selected.latitude},${selected.longitude},18z/data=!3m1!1e3`;
   const stateName = STATE_NAMES[selected.state] || selected.state || "Texas";
   const cadUrl = `https://www.google.com/search?q=${encodeURIComponent(
     `${selected.county} County ${stateName} appraisal district`
   )}`;
-
-  const toggleList = () => {
-    let listId = activeListId;
-    if (!listId) {
-      createList("My shortlist");
-      listId = useAppStore.getState().activeListId;
-    }
-    if (!listId) return;
-    if (inList) {
-      removeFromList(listId, selected.id);
-    } else {
-      addToList(listId, {
-        substationId: selected.id,
-        name: selected.name,
-        county: selected.county,
-        score: selected.opportunityScore,
-        maxVolt: selected.maxVolt,
-        queuedMw5mi: selected.queuedMw5mi,
-        latitude: selected.latitude,
-        longitude: selected.longitude,
-      });
-    }
-  };
 
   const preciseNearby = selected.nearbyProjects.filter(
     (p) => p.matchedBy !== "county"
@@ -116,37 +87,38 @@ export function DetailPanel() {
     <div className="flex h-full flex-col">
       <div className="flex items-start justify-between gap-2 border-b px-4 py-3">
         <div className="min-w-0">
-          <h2 className="truncate text-base font-semibold">{selected.name}</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="truncate text-base font-semibold">{selected.name}</h2>
+            <SubstationReviewBadge substationId={selected.id} />
+          </div>
           <p className="text-xs text-muted-foreground">
             {selected.county} County · {selected.city || "—"} ·{" "}
             {selected.voltageClass}
           </p>
         </div>
-        <div className="flex shrink-0 gap-1">
-          <Button
-            size="icon-sm"
-            variant={inList ? "default" : "outline"}
-            onClick={toggleList}
-            title={inList ? "Remove from shortlist" : "Add to shortlist"}
-          >
-            {inList ? (
-              <BookmarkCheck className="size-4" />
-            ) : (
-              <BookmarkPlus className="size-4" />
-            )}
-          </Button>
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            onClick={() => setSelectedSubstation(null)}
-          >
-            <X className="size-4" />
-          </Button>
-        </div>
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          onClick={() => setSelectedSubstation(null)}
+        >
+          <X className="size-4" />
+        </Button>
       </div>
 
       <ScrollArea className="flex-1">
         <div className="space-y-4 px-4 py-4">
+          <div className="space-y-1.5">
+            <SubstationReviewButtons
+              substationId={selected.id}
+              substation={selected}
+            />
+            {review && (
+              <p className="text-[11px] text-muted-foreground">
+                Hidden from the map. Clear Yes/No to show the dot again.
+              </p>
+            )}
+          </div>
+
           <div className="grid grid-cols-2 gap-2">
             <Metric
               label="Opportunity"
@@ -369,12 +341,6 @@ export function DetailPanel() {
             </p>
           </section>
 
-          {shortlists.length > 0 && (
-            <p className="text-[11px] text-muted-foreground">
-              Active list:{" "}
-              {shortlists.find((l) => l.id === activeListId)?.name ?? "none"}
-            </p>
-          )}
         </div>
       </ScrollArea>
     </div>

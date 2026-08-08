@@ -1,11 +1,15 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Download, Plus, Trash2 } from "lucide-react";
+import { Download, Trash2 } from "lucide-react";
 import {
   NO_PARCEL_LIST_ID,
   YES_PARCEL_LIST_ID,
 } from "@/lib/lists/parcelReview";
+import {
+  NO_SUBSTATION_LIST_ID,
+  YES_SUBSTATION_LIST_ID,
+} from "@/lib/lists/substationReview";
 import { useAppStore } from "@/lib/store";
 import {
   exportParcelListCsv,
@@ -87,17 +91,18 @@ export function ShortlistPanel() {
 function SiteListsSection() {
   const shortlists = useAppStore((s) => s.shortlists);
   const activeListId = useAppStore((s) => s.activeListId);
-  const createList = useAppStore((s) => s.createList);
-  const deleteList = useAppStore((s) => s.deleteList);
   const setActiveListId = useAppStore((s) => s.setActiveListId);
   const updateNote = useAppStore((s) => s.updateNote);
   const removeFromList = useAppStore((s) => s.removeFromList);
   const setPanelTab = useAppStore((s) => s.setPanelTab);
 
-  const [newName, setNewName] = useState("");
   const [sortKey, setSortKey] = useState<SiteSortKey>("score");
 
-  const active = shortlists.find((l) => l.id === activeListId) ?? shortlists[0];
+  const yesList = shortlists.find((l) => l.id === YES_SUBSTATION_LIST_ID);
+  const noList = shortlists.find((l) => l.id === NO_SUBSTATION_LIST_ID);
+  const active =
+    shortlists.find((l) => l.id === activeListId) ?? yesList ?? null;
+  const isYes = active?.id === YES_SUBSTATION_LIST_ID;
 
   const items = useMemo(() => {
     const list = [...(active?.items ?? [])];
@@ -110,74 +115,49 @@ function SiteListsSection() {
     return list;
   }, [active?.items, sortKey]);
 
-  const onCreate = () => {
-    createList(newName || `Shortlist ${shortlists.length + 1}`);
-    setNewName("");
-  };
-
   const onExport = () => {
     if (!active) return;
-    const csv = exportShortlistCsv(items);
-    downloadCsv(csv, active.name);
+    downloadCsv(exportShortlistCsv(items), active.name);
   };
 
   return (
     <>
       <div className="space-y-3 border-b px-4 py-3">
-        <h2 className="text-sm font-semibold">Site shortlists</h2>
-        <div className="flex gap-2">
-          <Input
-            placeholder="New list name"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && onCreate()}
-          />
-          <Button size="sm" onClick={onCreate}>
-            <Plus className="size-3.5" />
-            Add
-          </Button>
-        </div>
-        {shortlists.length > 0 && (
-          <div className="flex items-center gap-2">
-            <Select
-              value={active?.id}
-              onValueChange={(v) => setActiveListId(v ?? null)}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Select list">
-                  {(value) => {
-                    const list = shortlists.find((l) => l.id === value);
-                    return list
-                      ? `${list.name} (${list.items.length})`
-                      : null;
-                  }}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {shortlists.map((l) => (
-                  <SelectItem key={l.id} value={l.id}>
-                    {l.name} ({l.items.length})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {active && (
-              <Button
-                size="icon-sm"
-                variant="ghost"
-                onClick={() => deleteList(active.id)}
-                title="Delete list"
-              >
-                <Trash2 className="size-3.5" />
-              </Button>
+        <h2 className="text-sm font-semibold">Site review</h2>
+        <p className="text-xs text-muted-foreground">
+          Shared Yes / No lists. Reviewed substations are removed from the map.
+        </p>
+        <div className="flex gap-1 rounded-lg bg-muted/60 p-0.5">
+          <button
+            type="button"
+            onClick={() => setActiveListId(YES_SUBSTATION_LIST_ID)}
+            className={cn(
+              "flex-1 rounded-md px-2 py-1.5 text-xs font-semibold transition-colors",
+              isYes
+                ? "bg-emerald-600 text-white shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
             )}
-          </div>
-        )}
+          >
+            Yes ({yesList?.items.length ?? 0})
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveListId(NO_SUBSTATION_LIST_ID)}
+            className={cn(
+              "flex-1 rounded-md px-2 py-1.5 text-xs font-semibold transition-colors",
+              !isYes
+                ? "bg-red-600 text-white shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            No ({noList?.items.length ?? 0})
+          </button>
+        </div>
       </div>
 
       {!active ? (
         <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-muted-foreground">
-          Create a shortlist, then bookmark substations from the map.
+          Loading review lists…
         </div>
       ) : (
         <>
@@ -213,15 +193,23 @@ function SiteListsSection() {
             <ul className="space-y-2 px-4 py-3">
               {items.length === 0 && (
                 <li className="text-sm text-muted-foreground">
-                  No sites yet. Open a substation and click the bookmark icon.
+                  No sites yet. Open a substation and mark Yes or No.
                 </li>
               )}
               {items.map((item) => (
-                <li key={item.substationId} className="rounded-lg border p-3">
+                <li
+                  key={item.substationId}
+                  className={cn(
+                    "rounded-lg border p-3",
+                    isYes
+                      ? "border-emerald-200 bg-emerald-500/5"
+                      : "border-red-200 bg-red-500/5"
+                  )}
+                >
                   <div className="flex items-start justify-between gap-2">
                     <button
                       type="button"
-                      className="text-left"
+                      className="min-w-0 text-left"
                       onClick={() => {
                         setPanelTab("details");
                         window.dispatchEvent(
@@ -231,7 +219,9 @@ function SiteListsSection() {
                         );
                       }}
                     >
-                      <div className="text-sm font-semibold">{item.name}</div>
+                      <div className="truncate text-sm font-semibold">
+                        {item.name}
+                      </div>
                       <div className="text-xs text-muted-foreground">
                         {item.county} · score {item.score} ·{" "}
                         {item.maxVolt || "?"} kV · {formatMw(item.queuedMw5mi)}{" "}
@@ -241,6 +231,7 @@ function SiteListsSection() {
                     <Button
                       size="icon-xs"
                       variant="ghost"
+                      title="Clear review — show on map"
                       onClick={() =>
                         removeFromList(active.id, item.substationId)
                       }

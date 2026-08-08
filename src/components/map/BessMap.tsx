@@ -35,6 +35,7 @@ import {
   reviewFeatureIds,
   YES_PARCEL_LIST_ID,
 } from "@/lib/lists/parcelReview";
+import { reviewedSubstationIds } from "@/lib/lists/substationReview";
 
 function buildParcelViews(
   properties: ReturnType<typeof mapProperties>,
@@ -973,6 +974,7 @@ export function BessMap({
   const closeParcelPopup = useAppStore((s) => s.closeParcelPopup);
   const openParcelDetails = useAppStore((s) => s.openParcelDetails);
   const parcelLists = useAppStore((s) => s.parcelLists);
+  const shortlists = useAppStore((s) => s.shortlists);
   const reviewIdsRef = useRef<{
     yes: Set<string>;
     no: Set<string>;
@@ -993,6 +995,11 @@ export function BessMap({
   showParcelsRef.current = filters.showParcels;
   filtersRef.current = filters;
 
+  const hiddenSubIds = useMemo(
+    () => reviewedSubstationIds(shortlists),
+    [shortlists]
+  );
+
   const visibleSubs = useMemo(() => {
     if (!substations) return [] as DrawnSub[];
     const minScore = Math.min(filters.minScore, filters.maxScore);
@@ -1004,6 +1011,7 @@ export function BessMap({
     const out: DrawnSub[] = [];
     for (const f of substations.features) {
       const p = f.properties;
+      if (hiddenSubIds.has(p.id)) continue;
       if (p.maxVolt > 0 && p.maxVolt < filters.minVoltage) continue;
       if (p.opportunityScore < minScore || p.opportunityScore > maxScore)
         continue;
@@ -1023,7 +1031,7 @@ export function BessMap({
       });
     }
     return out;
-  }, [substations, filters]);
+  }, [substations, filters, hiddenSubIds]);
 
   const visibleProjs = useMemo(() => {
     if (!projects || !filters.showProjects) return [] as DrawnProj[];
@@ -1078,6 +1086,7 @@ export function BessMap({
         projects?.features.length ?? 0,
         visibleSubs.length,
         visibleProjs.length,
+        hiddenSubIds.size,
       ].join("\0"),
     [
       filters.showSubstations,
@@ -1095,6 +1104,7 @@ export function BessMap({
       projects?.features.length,
       visibleSubs.length,
       visibleProjs.length,
+      hiddenSubIds.size,
     ]
   );
 
