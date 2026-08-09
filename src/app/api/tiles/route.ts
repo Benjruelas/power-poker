@@ -165,7 +165,7 @@ export async function GET(request: Request) {
   const result = await fetchUpstreamTile(url, apiKey);
 
   if (result.kind === "mvt") {
-    return new Response(result.buf, {
+    return new Response(Uint8Array.from(result.buf), {
       status: 200,
       headers: {
         "Content-Type": "application/vnd.mapbox-vector-tile",
