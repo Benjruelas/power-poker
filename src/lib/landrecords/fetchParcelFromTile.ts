@@ -41,7 +41,7 @@ async function fetchTilePbf(
   apiKey: string
 ): Promise<Buffer | null> {
   const tileBase = process.env.LANDRECORDS_TILE_URL || DEFAULT_TILE_URL;
-  const tmsY = (1 << z) - 1 - y;
+  const tmsY = 2 ** z - 1 - y;
   const url = `${tileBase}/${z}/${x}/${tmsY}.pbf`;
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${apiKey}` },
