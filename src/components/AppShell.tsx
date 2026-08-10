@@ -209,11 +209,6 @@ export function AppShell() {
             substationCount={visibleCount}
             projectCount={projectCount}
           />
-
-          {/* Knockscout-style floating action bar — mobile only */}
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 z-40 px-3 pt-2 md:hidden pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-            <MobileActionBar />
-          </div>
         </main>
 
         {/* Desktop docked panel — hidden on mobile in favor of action bar sheets */}
@@ -257,6 +252,11 @@ export function AppShell() {
             </TabsContent>
           </Tabs>
         </aside>
+      </div>
+
+      {/* Action bar sits above sheets (z-60) so users can switch/toggle panels */}
+      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-[60] px-3 pt-2 md:hidden pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        <MobileActionBar />
       </div>
 
       <div className="md:hidden">
