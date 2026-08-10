@@ -72,7 +72,7 @@ export function FilterSidebar({
   };
 
   return (
-    <div className="flex h-full flex-col border-r bg-background/95 backdrop-blur">
+    <div className="flex h-full flex-col border-r-0 bg-background/95 backdrop-blur md:border-r">
       <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
         <div>
           <h2 className="text-sm font-semibold tracking-tight">Filters</h2>

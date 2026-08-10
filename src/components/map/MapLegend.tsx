@@ -16,7 +16,7 @@ export function MapLegend({
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="pointer-events-auto absolute bottom-3 left-3 z-50 max-w-[240px] rounded-lg border border-slate-200 bg-white text-xs text-slate-900 shadow-xl">
+    <div className="pointer-events-auto absolute bottom-[calc(5.75rem+env(safe-area-inset-bottom,0px))] left-3 z-30 max-w-[240px] rounded-lg border border-slate-200 bg-white text-xs text-slate-900 shadow-xl md:bottom-3 md:z-50">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}

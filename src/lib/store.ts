@@ -33,6 +33,8 @@ import {
 } from "./lists/substationReview";
 
 export type PanelTab = "details" | "parcel" | "lists" | "about";
+/** Mobile full-screen panels opened from the bottom action bar. */
+export type MobilePanel = PanelTab | "filters";
 export type { ParcelReview, SubstationReview };
 
 interface AppState {
@@ -55,6 +57,10 @@ interface AppState {
   closeParcelPopup: () => void;
   panelTab: PanelTab;
   setPanelTab: (tab: PanelTab) => void;
+  /** Which full-screen mobile panel is open (`null` = map-only). Desktop ignores this. */
+  mobilePanel: MobilePanel | null;
+  openMobilePanel: (panel: MobilePanel) => void;
+  closeMobilePanel: () => void;
   shortlists: Shortlist[];
   activeListId: string | null;
   /** @deprecated Fixed Yes/No lists only */
@@ -127,6 +133,7 @@ export const useAppStore = create<AppState>()(
           selectedSubstation,
           selectedSubstationId: selectedSubstation?.id ?? null,
           panelTab: selectedSubstation ? "details" : get().panelTab,
+          mobilePanel: selectedSubstation ? "details" : get().mobilePanel,
           parcelPopup: selectedSubstation ? null : get().parcelPopup,
           parcelFocus: selectedSubstation ? null : get().parcelFocus,
         }),
@@ -146,6 +153,7 @@ export const useAppStore = create<AppState>()(
           selectedSubstation: null,
           selectedSubstationId: null,
           panelTab: "parcel",
+          mobilePanel: "parcel",
           parcelPopup: null,
         });
       },
@@ -157,6 +165,14 @@ export const useAppStore = create<AppState>()(
       closeParcelPopup: () => set({ parcelPopup: null, parcelFocus: null }),
       panelTab: "about",
       setPanelTab: (panelTab) => set({ panelTab }),
+      mobilePanel: null,
+      openMobilePanel: (panel) =>
+        set({
+          mobilePanel: panel,
+          // Keep desktop tab in sync when opening a tab panel (not filters)
+          panelTab: panel === "filters" ? get().panelTab : panel,
+        }),
+      closeMobilePanel: () => set({ mobilePanel: null }),
       shortlists: ensureReviewShortlists([]),
       activeListId: YES_SUBSTATION_LIST_ID,
       createList: () => {
