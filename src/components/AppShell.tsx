@@ -3,12 +3,19 @@
 import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import type { FeatureCollection, Point } from "geojson";
-import { BatteryCharging, ListFilter, MapPinned, Info, LandPlot } from "lucide-react";
+import {
+  BatteryCharging,
+  ListFilter,
+  MapPinned,
+  Info,
+  LandPlot,
+} from "lucide-react";
 
 import { FilterSidebar } from "@/components/filters/FilterSidebar";
-import { MobileFilters } from "@/components/filters/MobileFilters";
 import { MapLegend } from "@/components/map/MapLegend";
 import { SharedListsSync } from "@/components/lists/SharedListsSync";
+import { MobileActionBar } from "@/components/mobile/MobileActionBar";
+import { MobilePanelSheet } from "@/components/mobile/MobilePanelSheet";
 import { AboutPanel } from "@/components/panels/AboutPanel";
 import { DetailPanel } from "@/components/panels/DetailPanel";
 import { ParcelDetailsPanel } from "@/components/panels/ParcelDetailsPanel";
@@ -131,10 +138,23 @@ export function AppShell() {
     [substations, filters]
   );
 
+  const projectCount = useMemo(() => {
+    if (!projects) return 0;
+    return projects.features.filter((f) => {
+      const p = f.properties;
+      return (
+        filters.fuels.includes(p.fuel) &&
+        filters.stages.includes(p.funnelStage) &&
+        p.capacityMw >= filters.minProjectMw &&
+        p.capacityMw <= filters.maxProjectMw
+      );
+    }).length;
+  }, [projects, filters]);
+
   return (
     <div className="flex h-dvh flex-col bg-background text-foreground">
       <SharedListsSync />
-      <header className="flex items-center justify-between gap-3 border-b px-4 py-2.5">
+      <header className="relative z-30 flex items-center justify-between gap-3 border-b px-4 py-2.5">
         <div className="flex items-center gap-2.5">
           <div className="flex size-8 items-center justify-center rounded-lg bg-emerald-600 text-white">
             <BatteryCharging className="size-4" />
@@ -150,11 +170,6 @@ export function AppShell() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <MobileFilters
-            counties={countyList}
-            visibleSubCount={visibleCount}
-            totalSubCount={substations?.features.length ?? 0}
-          />
           {loading && (
             <span className="text-xs text-muted-foreground">Loading data…</span>
           )}
@@ -175,7 +190,7 @@ export function AppShell() {
           />
         </aside>
 
-        <main className="relative min-h-[50vh] overflow-hidden md:min-h-0">
+        <main className="relative min-h-0 overflow-hidden">
           {!error && (
             <BessMap
               substations={substations}
@@ -192,23 +207,17 @@ export function AppShell() {
           )}
           <MapLegend
             substationCount={visibleCount}
-            projectCount={
-              projects
-                ? projects.features.filter((f) => {
-                    const p = f.properties;
-                    return (
-                      filters.fuels.includes(p.fuel) &&
-                      filters.stages.includes(p.funnelStage) &&
-                      p.capacityMw >= filters.minProjectMw &&
-                      p.capacityMw <= filters.maxProjectMw
-                    );
-                  }).length
-                : 0
-            }
+            projectCount={projectCount}
           />
+
+          {/* Knockscout-style floating action bar — mobile only */}
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 z-40 px-3 pt-2 md:hidden pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+            <MobileActionBar />
+          </div>
         </main>
 
-        <aside className="min-h-0 border-t md:border-t-0 md:border-l">
+        {/* Desktop docked panel — hidden on mobile in favor of action bar sheets */}
+        <aside className="hidden min-h-0 border-l md:block">
           <Tabs
             value={panelTab}
             onValueChange={(v) =>
@@ -248,6 +257,16 @@ export function AppShell() {
             </TabsContent>
           </Tabs>
         </aside>
+      </div>
+
+      <div className="md:hidden">
+        <MobilePanelSheet
+          counties={countyList}
+          visibleSubCount={visibleCount}
+          totalSubCount={substations?.features.length ?? 0}
+          substations={substations}
+          meta={meta}
+        />
       </div>
     </div>
   );
