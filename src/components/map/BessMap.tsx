@@ -78,11 +78,14 @@ function buildParcelViews(
 
 /**
  * LandRecords seeds zooms unevenly: many metros have z15 but empty z16 (Plano),
- * others only z16 (Houston). Address fly-to uses zoom 17 — if the vector source
- * maxzoom is 16, MapLibre fetches empty z16 tiles and parcels vanish.
+ * others only z16 (Houston / Cedar Hill), and some only z14 (DeSoto). Address
+ * fly-to uses zoom 17 — if the vector source maxzoom is 16, MapLibre fetches
+ * empty z16 tiles and parcels vanish.
  *
  * Primary source maxzoom 15 → overzoom z15 at 16+.
  * Detail source (z16 only) → cover z16-seeded areas without blanking z15 areas.
+ * /api/tiles gap-fills empty parents from children (or clips from a parent tile)
+ * so sparse GWC seeding still draws outlines at zoom 15+.
  */
 const PARCEL_MIN_ZOOM = 15;
 const PARCEL_BASE_MAXZOOM = 15;
