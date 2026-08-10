@@ -1,3 +1,4 @@
+import { fillSparseParcelTile } from "@/lib/landrecords/composeParcelTile";
 import { enforceIpRateLimit } from "@/lib/landrecords/rateLimit";
 
 export const runtime = "nodejs";
@@ -6,7 +7,7 @@ export const maxDuration = 30;
 const DEFAULT_TILE_URL =
   "https://api.landrecords.us/pro/gwc/service/tms/1.0.0/pro:parcel_us@EPSG:3857x2@pbf";
 
-/** Cache successful parcel tiles. */
+/** Cache successful parcel tiles (including synthesized gap-fills). */
 const TILE_CACHE_CONTROL =
   "public, max-age=86400, s-maxage=86400, stale-while-revalidate=3600";
 
@@ -59,10 +60,22 @@ function emptyTile(cacheable: boolean) {
   });
 }
 
+function mvtResponse(buf: Buffer) {
+  return new Response(Uint8Array.from(buf), {
+    status: 200,
+    headers: {
+      "Content-Type": "application/vnd.mapbox-vector-tile",
+      "Cache-Control": TILE_CACHE_CONTROL,
+    },
+  });
+}
+
 async function fetchUpstreamTile(
   url: string,
   apiKey: string
-): Promise<{ kind: "mvt"; buf: Buffer } | { kind: "empty" } | { kind: "error"; detail: string }> {
+): Promise<
+  { kind: "mvt"; buf: Buffer } | { kind: "empty" } | { kind: "error"; detail: string }
+> {
   let lastDetail = "upstream fetch failed";
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
@@ -124,6 +137,12 @@ async function fetchUpstreamTile(
   return { kind: "error", detail: lastDetail };
 }
 
+function tileUrl(tileBase: string, z: number, x: number, y: number) {
+  // TMS y-flip: tms_y = 2^z - 1 - y (use ** — << breaks for z >= 31)
+  const tmsY = 2 ** z - 1 - y;
+  return `${tileBase}/${z}/${x}/${tmsY}.pbf`;
+}
+
 export async function GET(request: Request) {
   // Soft-limit: prefer empty tile over JSON 429 so MapLibre doesn't hard-fail tiles
   const limited = enforceIpRateLimit(request, "tiles", 4000, 60);
@@ -158,26 +177,48 @@ export async function GET(request: Request) {
   }
 
   const tileBase = process.env.LANDRECORDS_TILE_URL || DEFAULT_TILE_URL;
-  // TMS y-flip: tms_y = 2^z - 1 - y (use ** — << breaks for z >= 31)
-  const tmsY = 2 ** zi - 1 - yi;
-  const url = `${tileBase}/${zi}/${xi}/${tmsY}.pbf`;
 
-  const result = await fetchUpstreamTile(url, apiKey);
+  const fetchExact = async (tz: number, tx: number, ty: number) => {
+    const result = await fetchUpstreamTile(
+      tileUrl(tileBase, tz, tx, ty),
+      apiKey
+    );
+    if (result.kind === "mvt") return result.buf;
+    return null;
+  };
 
-  if (result.kind === "mvt") {
-    return new Response(Uint8Array.from(result.buf), {
-      status: 200,
-      headers: {
-        "Content-Type": "application/vnd.mapbox-vector-tile",
-        "Cache-Control": TILE_CACHE_CONTROL,
-      },
-    });
+  const exact = await fetchUpstreamTile(tileUrl(tileBase, zi, xi, yi), apiKey);
+
+  if (exact.kind === "mvt") {
+    return mvtResponse(exact.buf);
   }
 
-  if (result.kind === "empty") {
+  if (exact.kind === "error") {
+    console.warn(
+      "LandRecords tile error:",
+      exact.detail,
+      tileUrl(tileBase, zi, xi, yi)
+    );
+    // Still attempt gap-fill — sparse seeding often 404s while neighbors exist
+  }
+
+  // Sparse GWC: synthesize missing zooms from children (Cedar Hill/Houston) or parent (DeSoto)
+  try {
+    const filled = await fillSparseParcelTile(zi, xi, yi, fetchExact);
+    if (filled && looksLikeMvt(filled)) {
+      return mvtResponse(filled);
+    }
+  } catch (err) {
+    console.warn(
+      "LandRecords tile gap-fill failed:",
+      err instanceof Error ? err.message : String(err),
+      `${zi}/${xi}/${yi}`
+    );
+  }
+
+  if (exact.kind === "empty") {
     return emptyTile(true);
   }
 
-  console.warn("LandRecords tile error:", result.detail, url);
   return emptyTile(false);
 }
