@@ -1332,8 +1332,14 @@ export function BessMap({
       style: buildMapStyle(initialSatellite),
       center: [-96.0, 39.0],
       zoom: 3.5,
+      pitch: 0,
+      maxPitch: 0,
+      dragRotate: false,
+      pitchWithRotate: false,
+      touchPitch: false,
       attributionControl: { compact: true },
     });
+    map.touchZoomRotate.disableRotation();
     mapRef.current = map;
 
     map.addControl(
