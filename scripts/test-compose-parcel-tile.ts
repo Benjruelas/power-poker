@@ -39,11 +39,16 @@ async function main() {
     const filled = await fillSparseParcelTile(z, x, y, fetchTile);
     console.log("Cedar Hill z15 filled", filled?.length ?? null);
     if (!filled) throw new Error("Cedar Hill gap-fill failed");
-    const layer = new VectorTile(new Pbf(filled)).layers.parcel_us;
-    if (!layer?.length) throw new Error("Cedar Hill composed tile has no features");
+    const layers = new VectorTile(new Pbf(filled)).layers;
+    const layer = layers.parcel_us || layers.parcels;
+    if (!layer?.length) {
+      throw new Error("Cedar Hill composed tile has no features in either layer");
+    }
     console.log(
       "Cedar Hill features",
       layer.length,
+      "layers",
+      Object.keys(layers).filter((k) => layers[k]?.length),
       "sample lrid",
       layer.feature(0).properties.lrid
     );

@@ -1,4 +1,6 @@
 import { createRequire } from "node:module";
+import { parcelIdsMatch } from "./parcelLookup";
+import { PARCEL_SOURCE_LAYERS } from "./parcelTiles";
 
 const require = createRequire(import.meta.url);
 
@@ -21,8 +23,6 @@ const { VectorTile } = require("@mapbox/vector-tile") as {
 
 const DEFAULT_TILE_URL =
   "https://api.landrecords.us/pro/gwc/service/tms/1.0.0/pro:parcel_us@EPSG:3857x2@pbf";
-
-const LAYER = "parcel_us";
 
 function lngLatToTile(lng: number, lat: number, z: number) {
   const latRad = (lat * Math.PI) / 180;
@@ -58,24 +58,27 @@ function propsFromTile(
   lrid?: string
 ): Record<string, unknown> | null {
   const tile = new VectorTile(new Pbf(buf));
-  const layer = tile.layers[LAYER];
-  if (!layer || layer.length === 0) return null;
 
   type Cand = { props: Record<string, unknown>; dist: number };
   const cands: Cand[] = [];
 
-  for (let i = 0; i < layer.length; i++) {
-    const props = layer.feature(i).properties;
-    if (lrid && String(props.lrid ?? "") === lrid) {
-      return props;
+  for (const layerName of PARCEL_SOURCE_LAYERS) {
+    const layer = tile.layers[layerName];
+    if (!layer || layer.length === 0) continue;
+
+    for (let i = 0; i < layer.length; i++) {
+      const props = layer.feature(i).properties;
+      if (lrid && parcelIdsMatch(props.lrid, lrid)) {
+        return props;
+      }
+      const cx = Number(props.centroidx ?? props.surfpointx);
+      const cy = Number(props.centroidy ?? props.surfpointy);
+      const dist =
+        Number.isFinite(cx) && Number.isFinite(cy)
+          ? (cx - lng) ** 2 + (cy - lat) ** 2
+          : Number.POSITIVE_INFINITY;
+      cands.push({ props, dist });
     }
-    const cx = Number(props.centroidx ?? props.surfpointx);
-    const cy = Number(props.centroidy ?? props.surfpointy);
-    const dist =
-      Number.isFinite(cx) && Number.isFinite(cy)
-        ? (cx - lng) ** 2 + (cy - lat) ** 2
-        : Number.POSITIVE_INFINITY;
-    cands.push({ props, dist });
   }
 
   if (lrid) {
@@ -83,6 +86,7 @@ function propsFromTile(
     return null;
   }
 
+  if (!cands.length) return null;
   cands.sort((a, b) => a.dist - b.dist);
   return cands[0]?.props ?? null;
 }

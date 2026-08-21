@@ -61,6 +61,15 @@ const CANONICAL_CONSUMED = new Set([
   "updated", "address_source", "parval_source", "improv_source", "landval_source",
 ]);
 
+/** GIS internals on the reduced `parcels` MVT layer — not assessor fields. */
+const INTERNAL_GIS_KEYS = new Set([
+  "elevavg", "elevmin", "elevmax",
+  "countyfp", "cousubfp", "placefp", "statefp",
+  "surfpointx", "surfpointy",
+  "accesstype", "naicscode",
+  "frsid", "dfrurl", "cwapermit", "caapermit", "rcrapermit",
+]);
+
 export function mapProperties(raw: Record<string, unknown>): ParcelProperties {
   const { city: mailCity, state: mailState } = splitCityState(
     raw.ownercity,
@@ -153,13 +162,26 @@ export function mapProperties(raw: Record<string, unknown>): ParcelProperties {
   };
 
   for (const [k, v] of Object.entries(raw || {})) {
-    if (CANONICAL_CONSUMED.has(k)) continue;
+    if (CANONICAL_CONSUMED.has(k) || INTERNAL_GIS_KEYS.has(k)) continue;
     if (v === "" || v === null || v === undefined) continue;
     const key = String(k).toUpperCase().replace(/[^A-Z0-9_]/g, "_");
     if (!(key in canonical)) canonical[key] = numOrStr(v);
   }
 
   return canonical;
+}
+
+/** Fill empty tile fields from a matching WFS/WMS record — never overwrite situs. */
+export function mergeParcelProperties(
+  base: ParcelProperties = {},
+  extra: ParcelProperties = {}
+): ParcelProperties {
+  const out: ParcelProperties = { ...base };
+  for (const [k, v] of Object.entries(extra || {})) {
+    if (v == null || v === "") continue;
+    if (out[k] == null || out[k] === "") out[k] = v;
+  }
+  return out;
 }
 
 export function resolveParcelDisplayAddress(properties: ParcelProperties): {
@@ -172,11 +194,32 @@ export function resolveParcelDisplayAddress(properties: ParcelProperties): {
   const city = str(properties.SITUS_CITY || properties.CITY || properties.PLACE_NAME);
   const state = str(properties.SITUS_STATE);
   const zip = str(properties.SITUS_ZIP);
-  const subtitle = [city, state, zip].filter(Boolean).join(", ");
-  const hasStreetAddress = Boolean(street);
-  const title = street || subtitle || str(properties.PROP_ID) || "Parcel";
-  const fullAddress = [street, subtitle].filter(Boolean).join(", ");
-  return { title, subtitle, fullAddress, hasStreetAddress };
+  const county = str(properties.COUNTY);
+
+  if (street) {
+    return {
+      title: street,
+      subtitle: "",
+      fullAddress: street,
+      hasStreetAddress: true,
+    };
+  }
+
+  // Sparse LandRecords tiles often have parcelstate=TX and nothing else.
+  // State-only is not a location subtitle (and must not become the title).
+  const tail = state && zip ? `${state} ${zip}` : zip;
+  const area = [city, city ? tail || state : tail].filter(Boolean).join(", ");
+  const subtitleParts: string[] = [];
+  if (area) subtitleParts.push(area);
+  if (county) subtitleParts.push(`${county} County`);
+  const subtitle = subtitleParts.join(" · ");
+
+  return {
+    title: "No street address",
+    subtitle,
+    fullAddress: subtitle || "No address",
+    hasStreetAddress: false,
+  };
 }
 
 export type ParcelPopupView = {

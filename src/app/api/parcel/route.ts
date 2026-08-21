@@ -1,4 +1,8 @@
 import { fetchParcelPropertiesFromTile } from "@/lib/landrecords/fetchParcelFromTile";
+import {
+  pickParcelFeature,
+  propertiesMatchRequestedLrid,
+} from "@/lib/landrecords/parcelLookup";
 import { enforceIpRateLimit } from "@/lib/landrecords/rateLimit";
 
 export const runtime = "nodejs";
@@ -9,32 +13,38 @@ const WFS_BASE = "https://api.landrecords.us/pro/wfs";
 const BBOX_DELTA = 0.00015;
 const CENTROID_DELTA = 0.0015;
 
+type GeoJsonFeature = {
+  properties?: Record<string, unknown>;
+  geometry?: {
+    type: string;
+    coordinates: unknown;
+  };
+};
+
 function authHeaders(apiKey: string) {
   return { Authorization: `Bearer ${apiKey}` };
 }
 
-async function parseFeatureProps(
-  res: Response
-): Promise<Record<string, unknown> | null> {
-  if (!res.ok) return null;
+async function parseFeatures(res: Response): Promise<GeoJsonFeature[]> {
+  if (!res.ok) return [];
   let data: {
     error?: unknown;
-    features?: { properties?: Record<string, unknown> }[];
+    features?: GeoJsonFeature[];
   };
   try {
     data = (await res.json()) as typeof data;
   } catch {
-    return null;
+    return [];
   }
-  if (data?.error) return null;
-  return data?.features?.[0]?.properties ?? null;
+  if (data?.error) return [];
+  return Array.isArray(data?.features) ? data.features : [];
 }
 
-async function fetchWmsByPoint(
+async function fetchWmsFeaturesByPoint(
   lat: number,
   lng: number,
   apiKey: string
-): Promise<Record<string, unknown> | null> {
+): Promise<GeoJsonFeature[]> {
   const minLat = lat - BBOX_DELTA;
   const maxLat = lat + BBOX_DELTA;
   const minLon = lng - BBOX_DELTA;
@@ -54,12 +64,13 @@ async function fetchWmsByPoint(
   url4326.searchParams.set("i", "50");
   url4326.searchParams.set("j", "50");
   url4326.searchParams.set("info_format", "application/json");
-  url4326.searchParams.set("feature_count", "1");
+  // Overlapping school/city polygons are common; callers pick by lrid or smallest area.
+  url4326.searchParams.set("feature_count", "10");
 
-  const props4326 = await parseFeatureProps(
+  const feats4326 = await parseFeatures(
     await fetch(url4326.toString(), { headers: authHeaders(apiKey) })
   );
-  if (props4326) return props4326;
+  if (feats4326.length) return feats4326;
 
   // CRS:84 is lon,lat — some GeoServer setups only answer this reliably
   const url84 = new URL(WMS_BASE);
@@ -75,9 +86,9 @@ async function fetchWmsByPoint(
   url84.searchParams.set("i", "50");
   url84.searchParams.set("j", "50");
   url84.searchParams.set("info_format", "application/json");
-  url84.searchParams.set("feature_count", "1");
+  url84.searchParams.set("feature_count", "10");
 
-  return parseFeatureProps(
+  return parseFeatures(
     await fetch(url84.toString(), { headers: authHeaders(apiKey) })
   );
 }
@@ -95,16 +106,18 @@ async function fetchWfsByLrid(
   url.searchParams.set("outputFormat", "application/json");
   url.searchParams.set("count", "1");
 
-  return parseFeatureProps(
+  const features = await parseFeatures(
     await fetch(url.toString(), { headers: authHeaders(apiKey) })
   );
+  return features[0]?.properties ?? null;
 }
 
 /** WFS centroid window — works where geometry queries / WMS miss. */
 async function fetchWfsByCentroid(
   lat: number,
   lng: number,
-  apiKey: string
+  apiKey: string,
+  lrid?: string
 ): Promise<Record<string, unknown> | null> {
   const d = CENTROID_DELTA;
   const url = new URL(WFS_BASE);
@@ -119,22 +132,19 @@ async function fetchWfsByCentroid(
   url.searchParams.set("outputFormat", "application/json");
   url.searchParams.set("count", "8");
 
-  const res = await fetch(url.toString(), { headers: authHeaders(apiKey) });
-  if (!res.ok) return null;
-  let data: {
-    error?: unknown;
-    features?: { properties?: Record<string, unknown> }[];
-  };
-  try {
-    data = (await res.json()) as typeof data;
-  } catch {
-    return null;
+  const features = await parseFeatures(
+    await fetch(url.toString(), { headers: authHeaders(apiKey) })
+  );
+  if (!features.length) return null;
+
+  if (lrid) {
+    const matched = pickParcelFeature(features, lrid);
+    return matched?.properties ?? null;
   }
-  if (data?.error || !data.features?.length) return null;
 
   let best: Record<string, unknown> | null = null;
   let bestDist = Number.POSITIVE_INFINITY;
-  for (const f of data.features) {
+  for (const f of features) {
     const p = f.properties;
     if (!p) continue;
     const cx = Number(p.centroidx ?? p.surfpointx);
@@ -146,7 +156,9 @@ async function fetchWfsByCentroid(
       best = p;
     }
   }
-  return best ?? data.features[0]?.properties ?? null;
+  if (best) return best;
+  const smallest = pickParcelFeature(features, null);
+  return smallest?.properties ?? null;
 }
 
 export async function GET(request: Request) {
@@ -157,6 +169,7 @@ export async function GET(request: Request) {
   const lat = parseFloat(searchParams.get("lat") ?? "");
   const lng = parseFloat(searchParams.get("lng") ?? "");
   const lrid = (searchParams.get("lrid") ?? "").trim();
+  const safeLrid = lrid && /^[\w-]+$/.test(lrid) ? lrid : "";
 
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
     return Response.json(
@@ -177,19 +190,36 @@ export async function GET(request: Request) {
     let properties: Record<string, unknown> | null = null;
     let source = "wms";
 
-    if (lrid && /^[\w-]+$/.test(lrid)) {
-      properties = await fetchWfsByLrid(lrid, apiKey);
+    if (safeLrid) {
+      properties = await fetchWfsByLrid(safeLrid, apiKey);
       if (properties) source = "wfs";
     }
 
     if (!properties) {
-      properties = await fetchWmsByPoint(lat, lng, apiKey);
+      const wmsFeature = pickParcelFeature(
+        await fetchWmsFeaturesByPoint(lat, lng, apiKey),
+        safeLrid || null
+      );
+      properties = wmsFeature?.properties || null;
       if (properties) source = "wms";
     }
 
+    if (properties && !propertiesMatchRequestedLrid(properties, safeLrid || null)) {
+      properties = null;
+    }
+
     if (!properties) {
-      properties = await fetchWfsByCentroid(lat, lng, apiKey);
+      properties = await fetchWfsByCentroid(
+        lat,
+        lng,
+        apiKey,
+        safeLrid || undefined
+      );
       if (properties) source = "wfs-centroid";
+    }
+
+    if (properties && !propertiesMatchRequestedLrid(properties, safeLrid || null)) {
+      properties = null;
     }
 
     // TX (and some other states) are present in vector tiles but absent from WFS
@@ -198,13 +228,24 @@ export async function GET(request: Request) {
         lat,
         lng,
         apiKey,
-        lrid && /^[\w-]+$/.test(lrid) ? lrid : undefined
+        safeLrid || undefined
       );
       if (properties) source = "mvt";
     }
 
+    if (properties && !propertiesMatchRequestedLrid(properties, safeLrid || null)) {
+      properties = null;
+    }
+
     if (!properties) {
-      return Response.json({ error: "parcel not found" }, { status: 404 });
+      // Expected when WFS/WMS lag vector tiles — 200 keeps the browser console quiet.
+      return Response.json(
+        { error: "parcel not found" },
+        {
+          status: 404,
+          headers: { "Cache-Control": "private, max-age=60" },
+        }
+      );
     }
 
     return Response.json(
