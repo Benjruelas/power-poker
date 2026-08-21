@@ -3,6 +3,7 @@ import {
   mapProperties,
   type ParcelProperties,
 } from "./parcelPropertyMap";
+import { propertiesMatchRequestedLrid } from "./parcelLookup";
 
 export async function fetchLandRecordsParcel(opts: {
   lat: number;
@@ -40,6 +41,8 @@ export async function fetchLandRecordsParcel(opts: {
   };
   const raw = data?.properties;
   if (!raw || typeof raw !== "object") return null;
+  // Never accept a WMS hit for a different lrid (overlapping school/city polygons).
+  if (!propertiesMatchRequestedLrid(raw, lrid)) return null;
 
   const properties = mapProperties(raw);
   const parcelId =

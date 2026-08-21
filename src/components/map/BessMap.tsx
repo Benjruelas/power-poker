@@ -20,10 +20,30 @@ import { fetchLandRecordsParcel } from "@/lib/landrecords/fetchParcel";
 import { computeOwnerOccupied } from "@/lib/landrecords/ownerOccupied";
 import {
   mapProperties,
+  mergeParcelProperties,
   resolveParcelDisplayAddress,
   type ParcelPopupView,
   type SelectedParcel,
 } from "@/lib/landrecords/parcelPropertyMap";
+import {
+  PARCEL_ALL_STYLE_LAYERS,
+  PARCEL_BASE_MAXZOOM,
+  PARCEL_DETAIL_ZOOM,
+  PARCEL_FILL_LAYERS,
+  PARCEL_LAYER_MIN_ZOOM,
+  PARCEL_LINE_HALO_LAYERS,
+  PARCEL_LINE_LAYERS,
+  PARCEL_SOURCE_ID,
+  PARCEL_SOURCE_ID_Z16,
+  PARCEL_SOURCE_LAYERS,
+  PARCEL_SOURCE_MIN_ZOOM,
+  PARCEL_SOURCES,
+  parcelFillLayerId,
+  parcelLineHaloLayerId,
+  parcelLineLayerId,
+  parcelPromoteId,
+  parcelPromoteIdMatches,
+} from "@/lib/landrecords/parcelTiles";
 import type {
   QueueProjectProperties,
   SubstationProperties,
@@ -84,25 +104,13 @@ function buildParcelViews(
  *
  * Primary source maxzoom 15 → overzoom z15 at 16+.
  * Detail source (z16 only) → cover z16-seeded areas without blanking z15 areas.
+ * Source minzoom 14 so empty z15 tiles can keep a parent; layers stay hidden
+ * until PARCEL_LAYER_MIN_ZOOM (15). Tiles may use source-layer `parcel_us` OR
+ * `parcels` — paint and hit-test both.
  * /api/tiles gap-fills empty parents from children (or clips from a parent tile)
  * so sparse GWC seeding still draws outlines at zoom 15+.
  */
-const PARCEL_MIN_ZOOM = 15;
-const PARCEL_BASE_MAXZOOM = 15;
-const PARCEL_DETAIL_ZOOM = 16;
 const ADDRESS_SELECT_ZOOM = 17;
-const PARCEL_SOURCE = "parcels";
-const PARCEL_SOURCE_Z16 = "parcels-z16";
-const PARCEL_SOURCE_LAYER = "parcel_us";
-const PARCEL_FILL = "parcels-fill";
-const PARCEL_LINE = "parcels-line";
-const PARCEL_LINE_HALO = "parcels-line-halo";
-const PARCEL_FILL_Z16 = "parcels-z16-fill";
-const PARCEL_LINE_Z16 = "parcels-z16-line";
-const PARCEL_LINE_HALO_Z16 = "parcels-z16-line-halo";
-
-const PARCEL_SOURCES = [PARCEL_SOURCE, PARCEL_SOURCE_Z16] as const;
-const PARCEL_FILL_LAYERS = [PARCEL_FILL, PARCEL_FILL_Z16] as const;
 
 const FS_CLICKED = [
   "boolean",
@@ -172,16 +180,17 @@ function applyParcelBasemapPaint(map: maplibregl.Map, satellite: boolean) {
     satellite ? 1 : 0.95,
   ];
 
-  for (const [fillId, lineId] of [
-    [PARCEL_FILL, PARCEL_LINE],
-    [PARCEL_FILL_Z16, PARCEL_LINE_Z16],
-  ] as const) {
-    if (!map.getLayer(fillId) || !map.getLayer(lineId)) continue;
-    map.setPaintProperty(fillId, "fill-color", fillColor);
-    map.setPaintProperty(fillId, "fill-opacity", fillOpacity);
-    map.setPaintProperty(lineId, "line-color", lineColor);
-    map.setPaintProperty(lineId, "line-width", lineWidth);
-    map.setPaintProperty(lineId, "line-opacity", lineOpacity);
+  for (const sourceLayer of PARCEL_SOURCE_LAYERS) {
+    for (const detail of [false, true]) {
+      const fillId = parcelFillLayerId(sourceLayer, detail);
+      const lineId = parcelLineLayerId(sourceLayer, detail);
+      if (!map.getLayer(fillId) || !map.getLayer(lineId)) continue;
+      map.setPaintProperty(fillId, "fill-color", fillColor);
+      map.setPaintProperty(fillId, "fill-opacity", fillOpacity);
+      map.setPaintProperty(lineId, "line-color", lineColor);
+      map.setPaintProperty(lineId, "line-width", lineWidth);
+      map.setPaintProperty(lineId, "line-opacity", lineOpacity);
+    }
   }
 }
 
@@ -191,17 +200,19 @@ function setParcelReviewState(
   review: "yes" | "no" | null
 ) {
   for (const source of PARCEL_SOURCES) {
-    try {
-      map.setFeatureState(
-        {
-          source,
-          sourceLayer: PARCEL_SOURCE_LAYER,
-          id: featureId,
-        },
-        { review }
-      );
-    } catch {
-      /* feature not in loaded tiles yet */
+    for (const sourceLayer of PARCEL_SOURCE_LAYERS) {
+      try {
+        map.setFeatureState(
+          {
+            source,
+            sourceLayer,
+            id: featureId,
+          },
+          { review }
+        );
+      } catch {
+        /* feature not in this source-layer / tile */
+      }
     }
   }
 }
@@ -211,17 +222,16 @@ function setParcelLayerVisibility(
   show: boolean,
   satellite: boolean
 ) {
-  for (const id of [
-    PARCEL_FILL,
-    PARCEL_LINE,
-    PARCEL_FILL_Z16,
-    PARCEL_LINE_Z16,
-  ]) {
+  for (const id of PARCEL_FILL_LAYERS) {
+    setVis(map, id, show);
+  }
+  for (const id of PARCEL_LINE_LAYERS) {
     setVis(map, id, show);
   }
   // Halo only helps on imagery; keep it off for the light basemap
-  setVis(map, PARCEL_LINE_HALO, show && satellite);
-  setVis(map, PARCEL_LINE_HALO_Z16, show && satellite);
+  for (const id of PARCEL_LINE_HALO_LAYERS) {
+    setVis(map, id, show && satellite);
+  }
 }
 
 function setParcelClickedState(
@@ -230,17 +240,19 @@ function setParcelClickedState(
   clicked: boolean
 ) {
   for (const source of PARCEL_SOURCES) {
-    try {
-      map.setFeatureState(
-        {
-          source,
-          sourceLayer: PARCEL_SOURCE_LAYER,
-          id: featureId,
-        },
-        { clicked }
-      );
-    } catch {
-      /* feature not in loaded tiles yet */
+    for (const sourceLayer of PARCEL_SOURCE_LAYERS) {
+      try {
+        map.setFeatureState(
+          {
+            source,
+            sourceLayer,
+            id: featureId,
+          },
+          { clicked }
+        );
+      } catch {
+        /* feature not in this source-layer / tile */
+      }
     }
   }
 }
@@ -248,13 +260,15 @@ function setParcelClickedState(
 /** Wipe all parcel feature-state — per-id clear fails when the old tile unloaded. */
 function clearAllParcelHighlights(map: maplibregl.Map) {
   for (const source of PARCEL_SOURCES) {
-    try {
-      map.removeFeatureState({
-        source,
-        sourceLayer: PARCEL_SOURCE_LAYER,
-      });
-    } catch {
-      /* source not ready */
+    for (const sourceLayer of PARCEL_SOURCE_LAYERS) {
+      try {
+        map.removeFeatureState({
+          source,
+          sourceLayer,
+        });
+      } catch {
+        /* source not ready */
+      }
     }
   }
 }
@@ -316,12 +330,25 @@ function queryParcelAtLngLat(
   lat: number
 ): maplibregl.MapGeoJSONFeature | null {
   const layers = parcelFillLayerIds(map);
-  if (!layers.length || map.getZoom() < PARCEL_MIN_ZOOM) {
+  if (!layers.length || map.getZoom() < PARCEL_LAYER_MIN_ZOOM) {
     return null;
   }
   const point = map.project([lng, lat]);
   const feats = map.queryRenderedFeatures(point, { layers });
   return pickSmallestParcelFeature(map, feats);
+}
+
+function parcelLookupPoint(
+  raw: Record<string, unknown>,
+  fallbackLat: number,
+  fallbackLng: number
+): { lat: number; lng: number } {
+  const cx = Number(raw.centroidx ?? raw.lon ?? raw.LONGITUDE);
+  const cy = Number(raw.centroidy ?? raw.lat ?? raw.LATITUDE);
+  if (Number.isFinite(cx) && Number.isFinite(cy)) {
+    return { lat: cy, lng: cx };
+  }
+  return { lat: fallbackLat, lng: fallbackLng };
 }
 
 type SubsFC = FeatureCollection<Point, SubstationProperties>;
@@ -892,119 +919,124 @@ function ensureBaseLayers(map: maplibregl.Map, satellite: boolean) {
   const origin =
     typeof window !== "undefined" ? window.location.origin : "";
   const parcelTiles = [`${origin}/api/tiles?z={z}&x={x}&y={y}`];
-  const promoteId = { [PARCEL_SOURCE_LAYER]: "lrid" };
+  const promoteId = parcelPromoteId();
 
-  // Recreate if an older session still has maxzoom 16 (blank at address zoom)
-  const styleSrc = map.getStyle()?.sources?.[PARCEL_SOURCE] as
-    | { maxzoom?: number }
+  const addParcelPaintLayers = (
+    sourceId: string,
+    detail: boolean,
+    layerMinZoom: number
+  ) => {
+    for (const sourceLayer of PARCEL_SOURCE_LAYERS) {
+      const fillId = parcelFillLayerId(sourceLayer, detail);
+      const haloId = parcelLineHaloLayerId(sourceLayer, detail);
+      const lineId = parcelLineLayerId(sourceLayer, detail);
+      if (!map.getLayer(fillId)) {
+        map.addLayer({
+          id: fillId,
+          type: "fill",
+          source: sourceId,
+          "source-layer": sourceLayer,
+          minzoom: layerMinZoom,
+          paint: {
+            "fill-color": "#2563eb",
+            "fill-opacity": ["case", FS_CLICKED, 0.45, 0.1],
+          },
+        });
+      }
+      if (!map.getLayer(haloId)) {
+        map.addLayer({
+          id: haloId,
+          type: "line",
+          source: sourceId,
+          "source-layer": sourceLayer,
+          minzoom: layerMinZoom,
+          layout: { visibility: "none" },
+          paint: {
+            "line-color": "#0f172a",
+            "line-width": ["case", FS_CLICKED, 5, 3.5],
+            "line-opacity": 0.85,
+          },
+        });
+      }
+      if (!map.getLayer(lineId)) {
+        map.addLayer({
+          id: lineId,
+          type: "line",
+          source: sourceId,
+          "source-layer": sourceLayer,
+          minzoom: layerMinZoom,
+          paint: {
+            "line-color": "#2563eb",
+            "line-width": ["case", FS_CLICKED, 3, 2],
+            "line-opacity": ["case", FS_CLICKED, 1, 0.95],
+          },
+        });
+      }
+    }
+  };
+
+  // Recreate if an older session still has maxzoom 16, incomplete promoteId,
+  // or is missing the reduced `parcels` source-layer paint.
+  const styleSrc = map.getStyle()?.sources?.[PARCEL_SOURCE_ID] as
+    | { maxzoom?: number; promoteId?: unknown }
     | undefined;
-  if (styleSrc && styleSrc.maxzoom !== PARCEL_BASE_MAXZOOM) {
-    for (const id of [
-      PARCEL_LINE,
-      PARCEL_LINE_HALO,
-      PARCEL_FILL,
-      PARCEL_LINE_Z16,
-      PARCEL_LINE_HALO_Z16,
-      PARCEL_FILL_Z16,
-    ]) {
+  const needsParcelRebuild =
+    Boolean(styleSrc) &&
+    (styleSrc!.maxzoom !== PARCEL_BASE_MAXZOOM ||
+      !parcelPromoteIdMatches(styleSrc!.promoteId) ||
+      !map.getLayer(parcelFillLayerId("parcels", false)));
+  if (needsParcelRebuild) {
+    for (const id of PARCEL_ALL_STYLE_LAYERS) {
       if (map.getLayer(id)) map.removeLayer(id);
     }
-    if (map.getSource(PARCEL_SOURCE_Z16)) map.removeSource(PARCEL_SOURCE_Z16);
-    map.removeSource(PARCEL_SOURCE);
+    if (map.getSource(PARCEL_SOURCE_ID_Z16)) {
+      map.removeSource(PARCEL_SOURCE_ID_Z16);
+    }
+    if (map.getSource(PARCEL_SOURCE_ID)) map.removeSource(PARCEL_SOURCE_ID);
   }
 
-  if (!map.getSource(PARCEL_SOURCE)) {
-    map.addSource(PARCEL_SOURCE, {
+  if (!map.getSource(PARCEL_SOURCE_ID)) {
+    map.addSource(PARCEL_SOURCE_ID, {
       type: "vector",
       tiles: parcelTiles,
-      minzoom: PARCEL_MIN_ZOOM,
+      minzoom: PARCEL_SOURCE_MIN_ZOOM,
       maxzoom: PARCEL_BASE_MAXZOOM,
       promoteId,
     });
-    map.addLayer({
-      id: PARCEL_FILL,
-      type: "fill",
-      source: PARCEL_SOURCE,
-      "source-layer": PARCEL_SOURCE_LAYER,
-      minzoom: PARCEL_MIN_ZOOM,
-      paint: {
-        "fill-color": "#2563eb",
-        "fill-opacity": ["case", FS_CLICKED, 0.45, 0.1],
-      },
-    });
-    // Dark halo under the outline so boundaries stay readable on satellite
-    map.addLayer({
-      id: PARCEL_LINE_HALO,
-      type: "line",
-      source: PARCEL_SOURCE,
-      "source-layer": PARCEL_SOURCE_LAYER,
-      minzoom: PARCEL_MIN_ZOOM,
-      layout: { visibility: "none" },
-      paint: {
-        "line-color": "#0f172a",
-        "line-width": ["case", FS_CLICKED, 5, 3.5],
-        "line-opacity": 0.85,
-      },
-    });
-    map.addLayer({
-      id: PARCEL_LINE,
-      type: "line",
-      source: PARCEL_SOURCE,
-      "source-layer": PARCEL_SOURCE_LAYER,
-      minzoom: PARCEL_MIN_ZOOM,
-      paint: {
-        "line-color": "#2563eb",
-        "line-width": ["case", FS_CLICKED, 3, 2],
-        "line-opacity": ["case", FS_CLICKED, 1, 0.95],
-      },
-    });
+    addParcelPaintLayers(
+      PARCEL_SOURCE_ID,
+      false,
+      PARCEL_LAYER_MIN_ZOOM
+    );
+  } else {
+    // HMR / older session may have base source but missing secondary layers
+    addParcelPaintLayers(
+      PARCEL_SOURCE_ID,
+      false,
+      PARCEL_LAYER_MIN_ZOOM
+    );
   }
 
   // Native z16 for metros LandRecords only seeds at 16 (e.g. Houston)
-  if (!map.getSource(PARCEL_SOURCE_Z16)) {
-    map.addSource(PARCEL_SOURCE_Z16, {
+  if (!map.getSource(PARCEL_SOURCE_ID_Z16)) {
+    map.addSource(PARCEL_SOURCE_ID_Z16, {
       type: "vector",
       tiles: parcelTiles,
       minzoom: PARCEL_DETAIL_ZOOM,
       maxzoom: PARCEL_DETAIL_ZOOM,
       promoteId,
     });
-    map.addLayer({
-      id: PARCEL_FILL_Z16,
-      type: "fill",
-      source: PARCEL_SOURCE_Z16,
-      "source-layer": PARCEL_SOURCE_LAYER,
-      minzoom: PARCEL_DETAIL_ZOOM,
-      paint: {
-        "fill-color": "#2563eb",
-        "fill-opacity": ["case", FS_CLICKED, 0.45, 0.1],
-      },
-    });
-    map.addLayer({
-      id: PARCEL_LINE_HALO_Z16,
-      type: "line",
-      source: PARCEL_SOURCE_Z16,
-      "source-layer": PARCEL_SOURCE_LAYER,
-      minzoom: PARCEL_DETAIL_ZOOM,
-      layout: { visibility: "none" },
-      paint: {
-        "line-color": "#0f172a",
-        "line-width": ["case", FS_CLICKED, 5, 3.5],
-        "line-opacity": 0.85,
-      },
-    });
-    map.addLayer({
-      id: PARCEL_LINE_Z16,
-      type: "line",
-      source: PARCEL_SOURCE_Z16,
-      "source-layer": PARCEL_SOURCE_LAYER,
-      minzoom: PARCEL_DETAIL_ZOOM,
-      paint: {
-        "line-color": "#2563eb",
-        "line-width": ["case", FS_CLICKED, 3, 2],
-        "line-opacity": ["case", FS_CLICKED, 1, 0.95],
-      },
-    });
+    addParcelPaintLayers(
+      PARCEL_SOURCE_ID_Z16,
+      true,
+      PARCEL_DETAIL_ZOOM
+    );
+  } else {
+    addParcelPaintLayers(
+      PARCEL_SOURCE_ID_Z16,
+      true,
+      PARCEL_DETAIL_ZOOM
+    );
   }
 
   if (!map.getSource("rings")) {
@@ -1435,7 +1467,7 @@ export function BessMap({
       const parcelLayers = parcelFillLayerIds(map);
       if (
         showParcelsRef.current &&
-        map.getZoom() >= PARCEL_MIN_ZOOM &&
+        map.getZoom() >= PARCEL_LAYER_MIN_ZOOM &&
         parcelLayers.length
       ) {
         const feats = map.queryRenderedFeatures(e.point, {
@@ -1493,7 +1525,7 @@ export function BessMap({
       const clickParcelLayers = parcelFillLayerIds(map);
       if (
         !showParcelsRef.current ||
-        map.getZoom() < PARCEL_MIN_ZOOM ||
+        map.getZoom() < PARCEL_LAYER_MIN_ZOOM ||
         !clickParcelLayers.length
       ) {
         return;
@@ -1547,12 +1579,19 @@ export function BessMap({
           ? String(hit.id)
           : undefined);
     const mapped = mapProperties(raw);
+    const lookup = parcelLookupPoint(raw, lat, lng);
 
     if (lrid) applyParcelHighlight(map, clickedFeatureIdRef, lrid);
 
     setSelectedSubstation(null);
     const hasTileProps = Object.keys(raw).length > 0;
-    const initial = buildParcelViews(mapped, lat, lng, lrid, true);
+    const initial = buildParcelViews(
+      mapped,
+      lookup.lat,
+      lookup.lng,
+      lrid,
+      true
+    );
     setParcelPopup(initial.popup, initial.focus);
 
     parcelAbortRef.current?.abort();
@@ -1563,14 +1602,20 @@ export function BessMap({
         setParcelPopup(null, null);
         return;
       }
-      const fallback = buildParcelViews(mapped, lat, lng, lrid, false);
+      const fallback = buildParcelViews(
+        mapped,
+        lookup.lat,
+        lookup.lng,
+        lrid,
+        false
+      );
       setParcelPopup(fallback.popup, fallback.focus);
     };
 
     fetchLandRecordsParcel({
-      lat,
-      lng,
-      lrid,
+      lat: lookup.lat,
+      lng: lookup.lng,
+      lrid: lrid || (raw.lrid != null ? String(raw.lrid) : undefined),
       signal: ac.signal,
     })
       .then((result) => {
@@ -1594,10 +1639,11 @@ export function BessMap({
             }
           });
         }
+        const merged = mergeParcelProperties(mapped, result.properties);
         const enriched = buildParcelViews(
-          result.properties,
-          lat,
-          lng,
+          merged,
+          lookup.lat,
+          lookup.lng,
           featureId,
           false
         );

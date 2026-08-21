@@ -1,4 +1,5 @@
 import { fillSparseParcelTile } from "@/lib/landrecords/composeParcelTile";
+import { emptyParcelTileStatus } from "@/lib/landrecords/parcelTiles";
 import { enforceIpRateLimit } from "@/lib/landrecords/rateLimit";
 
 export const runtime = "nodejs";
@@ -51,9 +52,18 @@ function looksLikeMvt(buf: Buffer): boolean {
   return true;
 }
 
-function emptyTile(cacheable: boolean) {
+/**
+ * LandRecords coverage is a sparse pyramid. MapLibre treats HTTP 204 as a
+ * successful empty tile and will NOT keep parent tiles — parcels vanish when
+ * zooming into a missing level. Status 410 (Gone) marks the tile as errored so
+ * MapLibre keeps lower-z parents. At source minzoom there is no parent to keep,
+ * so return 204 (silent blank) instead of 410.
+ */
+function emptyTile(cacheable: boolean, zi?: number) {
+  const status =
+    typeof zi === "number" ? emptyParcelTileStatus(zi) : 204;
   return new Response(null, {
-    status: 204,
+    status,
     headers: {
       "Cache-Control": cacheable ? EMPTY_CACHE_CONTROL : NO_STORE,
     },
@@ -217,8 +227,8 @@ export async function GET(request: Request) {
   }
 
   if (exact.kind === "empty") {
-    return emptyTile(true);
+    return emptyTile(true, zi);
   }
 
-  return emptyTile(false);
+  return emptyTile(false, zi);
 }

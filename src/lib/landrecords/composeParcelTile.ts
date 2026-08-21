@@ -5,6 +5,7 @@ import type {
   Geometry,
   GeoJsonProperties,
 } from "geojson";
+import { PARCEL_SOURCE_LAYERS } from "./parcelTiles";
 
 const require = createRequire(import.meta.url);
 
@@ -65,51 +66,81 @@ const vtpbf = require("vt-pbf") as {
   ) => Uint8Array;
 };
 
-const LAYER = "parcel_us";
+type LayeredFeatures = Map<
+  string,
+  Feature<Geometry, GeoJsonProperties>[]
+>;
 
-/** Decode MVT → GeoJSON features in WGS84. */
-function mvtToFeatures(
+function emptyLayers(): LayeredFeatures {
+  return new Map(PARCEL_SOURCE_LAYERS.map((name) => [name, []]));
+}
+
+function mergeLayers(into: LayeredFeatures, from: LayeredFeatures) {
+  for (const [name, feats] of from) {
+    const list = into.get(name) ?? [];
+    list.push(...feats);
+    into.set(name, list);
+  }
+}
+
+/** Decode MVT → GeoJSON features per LandRecords source-layer. */
+function mvtToLayeredFeatures(
   buf: Buffer,
   z: number,
   x: number,
   y: number
-): Feature<Geometry, GeoJsonProperties>[] {
+): LayeredFeatures {
   const tile = new VectorTile(new Pbf(buf));
-  const layer = tile.layers[LAYER];
-  if (!layer || layer.length === 0) return [];
-  const out: Feature<Geometry, GeoJsonProperties>[] = [];
-  for (let i = 0; i < layer.length; i++) {
-    try {
-      out.push(layer.feature(i).toGeoJSON(x, y, z));
-    } catch {
-      /* skip corrupt feature */
+  const out = emptyLayers();
+  for (const layerName of PARCEL_SOURCE_LAYERS) {
+    const layer = tile.layers[layerName];
+    if (!layer || layer.length === 0) continue;
+    const feats: Feature<Geometry, GeoJsonProperties>[] = [];
+    for (let i = 0; i < layer.length; i++) {
+      try {
+        feats.push(layer.feature(i).toGeoJSON(x, y, z));
+      } catch {
+        /* skip corrupt feature */
+      }
     }
+    out.set(layerName, feats);
   }
   return out;
 }
 
-/** Build an MVT for z/x/y from a GeoJSON feature list. */
-function encodeFeatures(
-  features: Feature<Geometry, GeoJsonProperties>[],
+function totalFeatureCount(byLayer: LayeredFeatures): number {
+  let n = 0;
+  for (const feats of byLayer.values()) n += feats.length;
+  return n;
+}
+
+/** Build an MVT for z/x/y preserving both parcel_us and parcels layers. */
+function encodeLayeredFeatures(
+  byLayer: LayeredFeatures,
   z: number,
   x: number,
   y: number
 ): Buffer | null {
-  if (features.length === 0) return null;
-  const fc: FeatureCollection = { type: "FeatureCollection", features };
-  // indexMaxZoom = z so getTile(z,…) materializes immediately
-  const index = geojsonvt(fc, {
-    maxZoom: z,
-    indexMaxZoom: z,
-    indexMaxPoints: 0,
-    tolerance: 0,
-    buffer: 64,
-    extent: 4096,
-  });
-  const tile = index.getTile(z, x, y);
-  if (!tile || tile.numFeatures === 0) return null;
+  if (totalFeatureCount(byLayer) === 0) return null;
+  const layers: Record<string, GeojsonVtTile> = {};
+  for (const [name, features] of byLayer) {
+    if (!features.length) continue;
+    const fc: FeatureCollection = { type: "FeatureCollection", features };
+    const index = geojsonvt(fc, {
+      maxZoom: z,
+      indexMaxZoom: z,
+      indexMaxPoints: 0,
+      tolerance: 0,
+      buffer: 64,
+      extent: 4096,
+    });
+    const tile = index.getTile(z, x, y);
+    if (!tile || tile.numFeatures === 0) continue;
+    layers[name] = tile;
+  }
+  if (Object.keys(layers).length === 0) return null;
   return Buffer.from(
-    vtpbf.fromGeojsonVt({ [LAYER]: tile }, { version: 2, extent: 4096 })
+    vtpbf.fromGeojsonVt(layers, { version: 2, extent: 4096 })
   );
 }
 
@@ -146,14 +177,14 @@ export async function fillSparseParcelTile(
     const children = await Promise.all(
       coords.map(([cx, cy]) => fetchTile(childZ, cx, cy))
     );
-    const features: Feature<Geometry, GeoJsonProperties>[] = [];
+    const byLayer = emptyLayers();
     for (let i = 0; i < 4; i++) {
       const buf = children[i];
       if (!buf) continue;
       const [cx, cy] = coords[i];
-      features.push(...mvtToFeatures(buf, childZ, cx, cy));
+      mergeLayers(byLayer, mvtToLayeredFeatures(buf, childZ, cx, cy));
     }
-    const composed = encodeFeatures(features, z, x, y);
+    const composed = encodeLayeredFeatures(byLayer, z, x, y);
     if (composed) return composed;
   }
 
@@ -168,8 +199,8 @@ export async function fillSparseParcelTile(
       parent = await fillSparseParcelTile(pz, px, py, fetchTile, depth + 1);
     }
     if (parent) {
-      const features = mvtToFeatures(parent, pz, px, py);
-      const clipped = encodeFeatures(features, z, x, y);
+      const byLayer = mvtToLayeredFeatures(parent, pz, px, py);
+      const clipped = encodeLayeredFeatures(byLayer, z, x, y);
       if (clipped) return clipped;
     }
   }
