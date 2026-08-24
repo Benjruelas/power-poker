@@ -1409,6 +1409,21 @@ export function BessMap({
     map.on("error", (e) => {
       // setTiles / source reload cancels in-flight tile fetches — benign
       if (isAbortError(e.error)) return;
+      // Sparse LandRecords zooms return 410 on purpose so MapLibre keeps parent
+      // tiles; transient origin flakes may be 503. Don't spam console/status.
+      const err = e.error as
+        | (Error & { status?: number; url?: string })
+        | undefined;
+      if (err) {
+        const status = err.status;
+        const url = String(err.url || err.message || "");
+        if (
+          (status === 410 || status === 503) &&
+          url.includes("/api/tiles")
+        ) {
+          return;
+        }
+      }
       console.warn("MapLibre error", e.error);
       if (e.error?.message) setStatus(String(e.error.message).slice(0, 100));
     });
