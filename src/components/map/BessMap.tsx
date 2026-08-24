@@ -526,18 +526,26 @@ const OSM_TILES = [
   "https://b.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}@2x.png",
   "https://c.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}@2x.png",
 ];
-const SAT_TILES = [
-  "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-];
+
+function satTileUrls(): string[] {
+  const origin =
+    typeof window !== "undefined" ? window.location.origin : "";
+  // Same-origin proxy — Esri blocks cross-origin MapLibre fetches on Vercel.
+  return [`${origin}/api/esri-tiles?layer=imagery&z={z}&x={x}&y={y}`];
+}
+
 const STREET_LABEL_TILES = [
   "https://a.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}@2x.png",
   "https://b.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}@2x.png",
   "https://c.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}@2x.png",
 ];
-/** Place labels designed for Esri World Imagery (cream text + markers). */
-const SAT_LABEL_TILES = [
-  "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
-];
+
+function satLabelTileUrls(): string[] {
+  const origin =
+    typeof window !== "undefined" ? window.location.origin : "";
+  return [`${origin}/api/esri-tiles?layer=labels&z={z}&x={x}&y={y}`];
+}
+
 const OSM_ATTR =
   '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; CARTO';
 const SAT_ATTR = "Esri, Maxar, Earthstar Geographics";
@@ -556,7 +564,7 @@ function isAbortError(err: unknown): boolean {
 
 /** City / place names — always the top MapLibre layer (above parcels & heat). */
 function ensurePlaceLabels(map: maplibregl.Map, satellite: boolean) {
-  const tiles = satellite ? SAT_LABEL_TILES : STREET_LABEL_TILES;
+  const tiles = satellite ? satLabelTileUrls() : STREET_LABEL_TILES;
   const attribution = satellite
     ? "Esri Boundaries & Places"
     : "CARTO / OSM labels";
@@ -627,7 +635,7 @@ function buildMapStyle(satellite: boolean): maplibregl.StyleSpecification {
     sources: {
       basemap: {
         type: "raster",
-        tiles: satellite ? SAT_TILES : OSM_TILES,
+        tiles: satellite ? satTileUrls() : OSM_TILES,
         tileSize: 256,
         maxzoom: BASEMAP_MAXZOOM,
         attribution: satellite ? SAT_ATTR : OSM_ATTR,
@@ -650,7 +658,7 @@ function buildMapStyle(satellite: boolean): maplibregl.StyleSpecification {
 function applyBasemap(map: maplibregl.Map, satellite: boolean) {
   const src = map.getSource("basemap") as maplibregl.RasterTileSource | undefined;
   if (src && typeof src.setTiles === "function") {
-    src.setTiles(satellite ? SAT_TILES : OSM_TILES);
+    src.setTiles(satellite ? satTileUrls() : OSM_TILES);
   }
   if (map.getLayer("background")) {
     map.setPaintProperty(
