@@ -27,22 +27,20 @@ import {
 } from "@/lib/landrecords/parcelPropertyMap";
 import {
   PARCEL_ALL_STYLE_LAYERS,
-  PARCEL_BASE_MAXZOOM,
-  PARCEL_DETAIL_ZOOM,
   PARCEL_FILL_LAYERS,
   PARCEL_LAYER_MIN_ZOOM,
   PARCEL_LINE_HALO_LAYERS,
   PARCEL_LINE_LAYERS,
   PARCEL_SOURCE_ID,
-  PARCEL_SOURCE_ID_Z16,
   PARCEL_SOURCE_LAYERS,
   PARCEL_SOURCE_MIN_ZOOM,
-  PARCEL_SOURCES,
+  PARCEL_TILE_MAXZOOM,
   parcelFillLayerId,
   parcelLineHaloLayerId,
   parcelLineLayerId,
   parcelPromoteId,
   parcelPromoteIdMatches,
+  parcelTileUrl,
 } from "@/lib/landrecords/parcelTiles";
 import type {
   QueueProjectProperties,
@@ -97,20 +95,16 @@ function buildParcelViews(
 }
 
 /**
- * LandRecords seeds zooms unevenly: many metros have z15 but empty z16 (Plano),
- * others only z16 (Houston / Cedar Hill), and some only z14 (DeSoto). Address
- * fly-to uses zoom 17 — if the vector source maxzoom is 16, MapLibre fetches
- * empty z16 tiles and parcels vanish.
+ * LandRecords is a sparse pyramid: some metros have z15 but empty z16 (Plano),
+ * others only z16 (Houston / Cedar Hill), some only z17 (Duncanville), some only
+ * z14 (DeSoto). Dual z15/z16 sources left holes at address fly-to zoom 17.
  *
- * Primary source maxzoom 15 → overzoom z15 at 16+.
- * Detail source (z16 only) → cover z16-seeded areas without blanking z15 areas.
- * Source minzoom 14 so empty z15 tiles can keep a parent; layers stay hidden
- * until PARCEL_LAYER_MIN_ZOOM (15). Tiles may use source-layer `parcel_us` OR
- * `parcels` — paint and hit-test both.
- * /api/tiles gap-fills empty parents from children (or clips from a parent tile)
- * so sparse GWC seeding still draws outlines at zoom 15+.
+ * KnockScout pattern: one vector source (minzoom 14, maxzoom 17) + HTTP 410 for
+ * empty tiles above minzoom so MapLibre keeps parent tiles. Paint both MVT layer
+ * names (`parcel_us` + `parcels`). /api/tiles may still gap-fill sparse GWC.
  */
 const ADDRESS_SELECT_ZOOM = 17;
+const BASEMAP_MAXZOOM = 19;
 
 const FS_CLICKED = [
   "boolean",
@@ -181,15 +175,34 @@ function applyParcelBasemapPaint(map: maplibregl.Map, satellite: boolean) {
   ];
 
   for (const sourceLayer of PARCEL_SOURCE_LAYERS) {
-    for (const detail of [false, true]) {
-      const fillId = parcelFillLayerId(sourceLayer, detail);
-      const lineId = parcelLineLayerId(sourceLayer, detail);
-      if (!map.getLayer(fillId) || !map.getLayer(lineId)) continue;
-      map.setPaintProperty(fillId, "fill-color", fillColor);
-      map.setPaintProperty(fillId, "fill-opacity", fillOpacity);
-      map.setPaintProperty(lineId, "line-color", lineColor);
-      map.setPaintProperty(lineId, "line-width", lineWidth);
-      map.setPaintProperty(lineId, "line-opacity", lineOpacity);
+    const fillId = parcelFillLayerId(sourceLayer);
+    const lineId = parcelLineLayerId(sourceLayer);
+    if (!map.getLayer(fillId) || !map.getLayer(lineId)) continue;
+    map.setPaintProperty(fillId, "fill-color", fillColor);
+    map.setPaintProperty(fillId, "fill-opacity", fillOpacity);
+    map.setPaintProperty(lineId, "line-color", lineColor);
+    map.setPaintProperty(lineId, "line-width", lineWidth);
+    map.setPaintProperty(lineId, "line-opacity", lineOpacity);
+  }
+}
+
+function setParcelFeatureStateOnLayers(
+  map: maplibregl.Map,
+  featureId: string,
+  state: Record<string, unknown>
+) {
+  for (const sourceLayer of PARCEL_SOURCE_LAYERS) {
+    try {
+      map.setFeatureState(
+        {
+          source: PARCEL_SOURCE_ID,
+          sourceLayer,
+          id: featureId,
+        },
+        state
+      );
+    } catch {
+      /* feature not in this source-layer / tile */
     }
   }
 }
@@ -199,22 +212,7 @@ function setParcelReviewState(
   featureId: string,
   review: "yes" | "no" | null
 ) {
-  for (const source of PARCEL_SOURCES) {
-    for (const sourceLayer of PARCEL_SOURCE_LAYERS) {
-      try {
-        map.setFeatureState(
-          {
-            source,
-            sourceLayer,
-            id: featureId,
-          },
-          { review }
-        );
-      } catch {
-        /* feature not in this source-layer / tile */
-      }
-    }
-  }
+  setParcelFeatureStateOnLayers(map, featureId, { review });
 }
 
 function setParcelLayerVisibility(
@@ -239,36 +237,19 @@ function setParcelClickedState(
   featureId: string,
   clicked: boolean
 ) {
-  for (const source of PARCEL_SOURCES) {
-    for (const sourceLayer of PARCEL_SOURCE_LAYERS) {
-      try {
-        map.setFeatureState(
-          {
-            source,
-            sourceLayer,
-            id: featureId,
-          },
-          { clicked }
-        );
-      } catch {
-        /* feature not in this source-layer / tile */
-      }
-    }
-  }
+  setParcelFeatureStateOnLayers(map, featureId, { clicked });
 }
 
 /** Wipe all parcel feature-state — per-id clear fails when the old tile unloaded. */
 function clearAllParcelHighlights(map: maplibregl.Map) {
-  for (const source of PARCEL_SOURCES) {
-    for (const sourceLayer of PARCEL_SOURCE_LAYERS) {
-      try {
-        map.removeFeatureState({
-          source,
-          sourceLayer,
-        });
-      } catch {
-        /* source not ready */
-      }
+  for (const sourceLayer of PARCEL_SOURCE_LAYERS) {
+    try {
+      map.removeFeatureState({
+        source: PARCEL_SOURCE_ID,
+        sourceLayer,
+      });
+    } catch {
+      /* source not ready */
     }
   }
 }
@@ -585,6 +566,7 @@ function ensurePlaceLabels(map: maplibregl.Map, satellite: boolean) {
       type: "raster",
       tiles,
       tileSize: 256,
+      maxzoom: BASEMAP_MAXZOOM,
       attribution,
     });
     labelsSatellite = satellite;
@@ -647,6 +629,7 @@ function buildMapStyle(satellite: boolean): maplibregl.StyleSpecification {
         type: "raster",
         tiles: satellite ? SAT_TILES : OSM_TILES,
         tileSize: 256,
+        maxzoom: BASEMAP_MAXZOOM,
         attribution: satellite ? SAT_ATTR : OSM_ATTR,
       },
     },
@@ -918,25 +901,21 @@ function ensureBaseLayers(map: maplibregl.Map, satellite: boolean) {
   // LandRecords parcels (above counties/lines, below fiber routes / rings)
   const origin =
     typeof window !== "undefined" ? window.location.origin : "";
-  const parcelTiles = [`${origin}/api/tiles?z={z}&x={x}&y={y}`];
+  const parcelTiles = [parcelTileUrl(origin)];
   const promoteId = parcelPromoteId();
 
-  const addParcelPaintLayers = (
-    sourceId: string,
-    detail: boolean,
-    layerMinZoom: number
-  ) => {
+  const addParcelPaintLayers = () => {
     for (const sourceLayer of PARCEL_SOURCE_LAYERS) {
-      const fillId = parcelFillLayerId(sourceLayer, detail);
-      const haloId = parcelLineHaloLayerId(sourceLayer, detail);
-      const lineId = parcelLineLayerId(sourceLayer, detail);
+      const fillId = parcelFillLayerId(sourceLayer);
+      const haloId = parcelLineHaloLayerId(sourceLayer);
+      const lineId = parcelLineLayerId(sourceLayer);
       if (!map.getLayer(fillId)) {
         map.addLayer({
           id: fillId,
           type: "fill",
-          source: sourceId,
+          source: PARCEL_SOURCE_ID,
           "source-layer": sourceLayer,
-          minzoom: layerMinZoom,
+          minzoom: PARCEL_LAYER_MIN_ZOOM,
           paint: {
             "fill-color": "#2563eb",
             "fill-opacity": ["case", FS_CLICKED, 0.45, 0.1],
@@ -947,9 +926,9 @@ function ensureBaseLayers(map: maplibregl.Map, satellite: boolean) {
         map.addLayer({
           id: haloId,
           type: "line",
-          source: sourceId,
+          source: PARCEL_SOURCE_ID,
           "source-layer": sourceLayer,
-          minzoom: layerMinZoom,
+          minzoom: PARCEL_LAYER_MIN_ZOOM,
           layout: { visibility: "none" },
           paint: {
             "line-color": "#0f172a",
@@ -962,9 +941,9 @@ function ensureBaseLayers(map: maplibregl.Map, satellite: boolean) {
         map.addLayer({
           id: lineId,
           type: "line",
-          source: sourceId,
+          source: PARCEL_SOURCE_ID,
           "source-layer": sourceLayer,
-          minzoom: layerMinZoom,
+          minzoom: PARCEL_LAYER_MIN_ZOOM,
           paint: {
             "line-color": "#2563eb",
             "line-width": ["case", FS_CLICKED, 3, 2],
@@ -975,23 +954,31 @@ function ensureBaseLayers(map: maplibregl.Map, satellite: boolean) {
     }
   };
 
-  // Recreate if an older session still has maxzoom 16, incomplete promoteId,
-  // or is missing the reduced `parcels` source-layer paint.
+  // Recreate if an older session still has dual z15/z16 sources, wrong maxzoom,
+  // incomplete promoteId, or is missing the reduced `parcels` source-layer paint.
   const styleSrc = map.getStyle()?.sources?.[PARCEL_SOURCE_ID] as
-    | { maxzoom?: number; promoteId?: unknown }
+    | { maxzoom?: number; minzoom?: number; promoteId?: unknown }
     | undefined;
   const needsParcelRebuild =
-    Boolean(styleSrc) &&
-    (styleSrc!.maxzoom !== PARCEL_BASE_MAXZOOM ||
-      !parcelPromoteIdMatches(styleSrc!.promoteId) ||
-      !map.getLayer(parcelFillLayerId("parcels", false)));
+    Boolean(map.getSource("parcels-z16")) ||
+    (Boolean(styleSrc) &&
+      (styleSrc!.maxzoom !== PARCEL_TILE_MAXZOOM ||
+        styleSrc!.minzoom !== PARCEL_SOURCE_MIN_ZOOM ||
+        !parcelPromoteIdMatches(styleSrc!.promoteId) ||
+        !map.getLayer(parcelFillLayerId("parcels"))));
   if (needsParcelRebuild) {
-    for (const id of PARCEL_ALL_STYLE_LAYERS) {
+    for (const id of [
+      ...PARCEL_ALL_STYLE_LAYERS,
+      "parcels-z16-fill",
+      "parcels-z16-line",
+      "parcels-z16-line-halo",
+      "parcels-z16-fill-parcels",
+      "parcels-z16-line-parcels",
+      "parcels-z16-line-halo-parcels",
+    ]) {
       if (map.getLayer(id)) map.removeLayer(id);
     }
-    if (map.getSource(PARCEL_SOURCE_ID_Z16)) {
-      map.removeSource(PARCEL_SOURCE_ID_Z16);
-    }
+    if (map.getSource("parcels-z16")) map.removeSource("parcels-z16");
     if (map.getSource(PARCEL_SOURCE_ID)) map.removeSource(PARCEL_SOURCE_ID);
   }
 
@@ -1000,44 +987,11 @@ function ensureBaseLayers(map: maplibregl.Map, satellite: boolean) {
       type: "vector",
       tiles: parcelTiles,
       minzoom: PARCEL_SOURCE_MIN_ZOOM,
-      maxzoom: PARCEL_BASE_MAXZOOM,
+      maxzoom: PARCEL_TILE_MAXZOOM,
       promoteId,
     });
-    addParcelPaintLayers(
-      PARCEL_SOURCE_ID,
-      false,
-      PARCEL_LAYER_MIN_ZOOM
-    );
-  } else {
-    // HMR / older session may have base source but missing secondary layers
-    addParcelPaintLayers(
-      PARCEL_SOURCE_ID,
-      false,
-      PARCEL_LAYER_MIN_ZOOM
-    );
   }
-
-  // Native z16 for metros LandRecords only seeds at 16 (e.g. Houston)
-  if (!map.getSource(PARCEL_SOURCE_ID_Z16)) {
-    map.addSource(PARCEL_SOURCE_ID_Z16, {
-      type: "vector",
-      tiles: parcelTiles,
-      minzoom: PARCEL_DETAIL_ZOOM,
-      maxzoom: PARCEL_DETAIL_ZOOM,
-      promoteId,
-    });
-    addParcelPaintLayers(
-      PARCEL_SOURCE_ID_Z16,
-      true,
-      PARCEL_DETAIL_ZOOM
-    );
-  } else {
-    addParcelPaintLayers(
-      PARCEL_SOURCE_ID_Z16,
-      true,
-      PARCEL_DETAIL_ZOOM
-    );
-  }
+  addParcelPaintLayers();
 
   if (!map.getSource("rings")) {
     map.addSource("rings", { type: "geojson", data: emptyFC() });

@@ -1,4 +1,5 @@
 import { fetchParcelPropertiesFromTile } from "@/lib/landrecords/fetchParcelFromTile";
+import { landRecordsFetch } from "@/lib/landrecords/landRecordsAuth";
 import {
   pickParcelFeature,
   propertiesMatchRequestedLrid,
@@ -20,10 +21,6 @@ type GeoJsonFeature = {
     coordinates: unknown;
   };
 };
-
-function authHeaders(apiKey: string) {
-  return { Authorization: `Bearer ${apiKey}` };
-}
 
 async function parseFeatures(res: Response): Promise<GeoJsonFeature[]> {
   if (!res.ok) return [];
@@ -68,7 +65,7 @@ async function fetchWmsFeaturesByPoint(
   url4326.searchParams.set("feature_count", "10");
 
   const feats4326 = await parseFeatures(
-    await fetch(url4326.toString(), { headers: authHeaders(apiKey) })
+    await landRecordsFetch(url4326.toString(), { apiKey })
   );
   if (feats4326.length) return feats4326;
 
@@ -89,7 +86,7 @@ async function fetchWmsFeaturesByPoint(
   url84.searchParams.set("feature_count", "10");
 
   return parseFeatures(
-    await fetch(url84.toString(), { headers: authHeaders(apiKey) })
+    await landRecordsFetch(url84.toString(), { apiKey })
   );
 }
 
@@ -107,7 +104,7 @@ async function fetchWfsByLrid(
   url.searchParams.set("count", "1");
 
   const features = await parseFeatures(
-    await fetch(url.toString(), { headers: authHeaders(apiKey) })
+    await landRecordsFetch(url.toString(), { apiKey })
   );
   return features[0]?.properties ?? null;
 }
@@ -133,7 +130,7 @@ async function fetchWfsByCentroid(
   url.searchParams.set("count", "8");
 
   const features = await parseFeatures(
-    await fetch(url.toString(), { headers: authHeaders(apiKey) })
+    await landRecordsFetch(url.toString(), { apiKey })
   );
   if (!features.length) return null;
 

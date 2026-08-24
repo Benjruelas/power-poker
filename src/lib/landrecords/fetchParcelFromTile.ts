@@ -1,4 +1,9 @@
 import { createRequire } from "node:module";
+import {
+  DEFAULT_LANDRECORDS_TMS_URL,
+  landRecordsFetch,
+  originParcelTileUrls,
+} from "./landRecordsAuth";
 import { parcelIdsMatch } from "./parcelLookup";
 import { PARCEL_SOURCE_LAYERS } from "./parcelTiles";
 
@@ -21,9 +26,6 @@ const { VectorTile } = require("@mapbox/vector-tile") as {
   };
 };
 
-const DEFAULT_TILE_URL =
-  "https://api.landrecords.us/pro/gwc/service/tms/1.0.0/pro:parcel_us@EPSG:3857x2@pbf";
-
 function lngLatToTile(lng: number, lat: number, z: number) {
   const latRad = (lat * Math.PI) / 180;
   const n = 2 ** z;
@@ -40,15 +42,26 @@ async function fetchTilePbf(
   y: number,
   apiKey: string
 ): Promise<Buffer | null> {
-  const tileBase = process.env.LANDRECORDS_TILE_URL || DEFAULT_TILE_URL;
-  const tmsY = 2 ** z - 1 - y;
-  const url = `${tileBase}/${z}/${x}/${tmsY}.pbf`;
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${apiKey}` },
-  });
-  if (res.status === 404 || res.status === 204 || !res.ok) return null;
-  const buf = Buffer.from(await res.arrayBuffer());
-  return buf.length ? buf : null;
+  const urls = originParcelTileUrls(
+    z,
+    x,
+    y,
+    process.env.LANDRECORDS_TILE_URL || DEFAULT_LANDRECORDS_TMS_URL
+  );
+  for (const url of urls) {
+    try {
+      const res = await landRecordsFetch(url, {
+        apiKey,
+        signal: AbortSignal.timeout(12_000),
+      });
+      if (res.status === 404 || res.status === 204 || !res.ok) continue;
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.length) return buf;
+    } catch {
+      /* try next URL */
+    }
+  }
+  return null;
 }
 
 function propsFromTile(
@@ -101,7 +114,7 @@ export async function fetchParcelPropertiesFromTile(
   apiKey: string,
   lrid?: string
 ): Promise<Record<string, unknown> | null> {
-  for (const z of [16, 15, 14]) {
+  for (const z of [17, 16, 15, 14]) {
     const { x, y } = lngLatToTile(lng, lat, z);
     const buf = await fetchTilePbf(z, x, y, apiKey);
     if (!buf) continue;

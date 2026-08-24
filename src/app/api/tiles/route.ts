@@ -1,12 +1,14 @@
 import { fillSparseParcelTile } from "@/lib/landrecords/composeParcelTile";
+import {
+  DEFAULT_LANDRECORDS_TMS_URL,
+  landRecordsFetch,
+  originParcelTileUrls,
+} from "@/lib/landrecords/landRecordsAuth";
 import { emptyParcelTileStatus } from "@/lib/landrecords/parcelTiles";
 import { enforceIpRateLimit } from "@/lib/landrecords/rateLimit";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
-
-const DEFAULT_TILE_URL =
-  "https://api.landrecords.us/pro/gwc/service/tms/1.0.0/pro:parcel_us@EPSG:3857x2@pbf";
 
 /** Cache successful parcel tiles (including synthesized gap-fills). */
 const TILE_CACHE_CONTROL =
@@ -42,7 +44,6 @@ function isTransient(err: unknown): boolean {
 /** True protobuf/MVT payload — reject GWC HTML/JSON error bodies. */
 function looksLikeMvt(buf: Buffer): boolean {
   if (buf.length === 0) return false;
-  // HTML / JSON / plain-text error pages
   const b0 = buf[0];
   if (b0 === 0x3c /* < */ || b0 === 0x7b /* { */ || b0 === 0x5b /* [ */) {
     return false;
@@ -80,66 +81,84 @@ function mvtResponse(buf: Buffer) {
   });
 }
 
+/**
+ * Cloudflare 403s `User-Agent: node`. Use a real UA via landRecordsFetch, and
+ * if the configured GWC TMS path still 401/403, try the advertised XYZ path.
+ */
 async function fetchUpstreamTile(
-  url: string,
+  zi: number,
+  xi: number,
+  yi: number,
   apiKey: string
 ): Promise<
   { kind: "mvt"; buf: Buffer } | { kind: "empty" } | { kind: "error"; detail: string }
 > {
+  const urls = originParcelTileUrls(
+    zi,
+    xi,
+    yi,
+    process.env.LANDRECORDS_TILE_URL || DEFAULT_LANDRECORDS_TMS_URL
+  );
   let lastDetail = "upstream fetch failed";
 
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    try {
-      const upstream = await fetch(url, {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          Accept: "application/vnd.mapbox-vector-tile,application/x-protobuf,*/*",
-        },
-        signal: AbortSignal.timeout(12_000),
-      });
+  for (let i = 0; i < urls.length; i++) {
+    const url = urls[i]!;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        const upstream = await landRecordsFetch(url, {
+          apiKey,
+          signal: AbortSignal.timeout(12_000),
+        });
 
-      if (upstream.status === 404 || upstream.status === 204) {
-        return { kind: "empty" };
-      }
+        if (upstream.status === 404 || upstream.status === 204) {
+          return { kind: "empty" };
+        }
 
-      const buf = Buffer.from(await upstream.arrayBuffer());
+        const buf = Buffer.from(await upstream.arrayBuffer());
 
-      if (upstream.ok && buf.length === 0) {
-        return { kind: "empty" };
-      }
+        if (upstream.ok && buf.length === 0) {
+          return { kind: "empty" };
+        }
 
-      if (upstream.ok && looksLikeMvt(buf)) {
-        return { kind: "mvt", buf };
-      }
+        if (upstream.ok && looksLikeMvt(buf)) {
+          return { kind: "mvt", buf };
+        }
 
-      // GWC often returns 400 + HTML "Problem communicating with GeoServer"
-      const transientHttp =
-        upstream.status === 408 ||
-        upstream.status === 425 ||
-        upstream.status === 429 ||
-        upstream.status >= 500 ||
-        upstream.status === 400;
+        lastDetail = `upstream ${upstream.status}${
+          buf.length && !looksLikeMvt(buf) ? " (non-mvt body)" : ""
+        }`;
 
-      lastDetail = `upstream ${upstream.status}${
-        buf.length && !looksLikeMvt(buf) ? " (non-mvt body)" : ""
-      }`;
+        // 401/403 after token retry: try next origin URL (advertised XYZ)
+        if (
+          (upstream.status === 401 || upstream.status === 403) &&
+          i < urls.length - 1
+        ) {
+          break;
+        }
 
-      if (transientHttp && attempt < MAX_ATTEMPTS) {
-        await sleep(80 * attempt + Math.floor(Math.random() * 80));
-        continue;
-      }
+        const transientHttp =
+          upstream.status === 408 ||
+          upstream.status === 425 ||
+          upstream.status === 429 ||
+          upstream.status >= 500 ||
+          upstream.status === 400;
 
-      // Soft-fail: never hand MapLibre HTML/JSON (breaks the vector source)
-      return { kind: "error", detail: lastDetail };
-    } catch (err) {
-      lastDetail = err instanceof Error ? err.message : String(err);
-      if (attempt < MAX_ATTEMPTS && isTransient(err)) {
-        await sleep(100 * attempt + Math.floor(Math.random() * 120));
-        continue;
-      }
-      if (attempt < MAX_ATTEMPTS) {
-        await sleep(100 * attempt);
-        continue;
+        if (transientHttp && attempt < MAX_ATTEMPTS) {
+          await sleep(80 * attempt + Math.floor(Math.random() * 80));
+          continue;
+        }
+
+        return { kind: "error", detail: lastDetail };
+      } catch (err) {
+        lastDetail = err instanceof Error ? err.message : String(err);
+        if (attempt < MAX_ATTEMPTS && isTransient(err)) {
+          await sleep(100 * attempt + Math.floor(Math.random() * 120));
+          continue;
+        }
+        if (attempt < MAX_ATTEMPTS) {
+          await sleep(100 * attempt);
+          continue;
+        }
       }
     }
   }
@@ -147,19 +166,7 @@ async function fetchUpstreamTile(
   return { kind: "error", detail: lastDetail };
 }
 
-function tileUrl(tileBase: string, z: number, x: number, y: number) {
-  // TMS y-flip: tms_y = 2^z - 1 - y (use ** — << breaks for z >= 31)
-  const tmsY = 2 ** z - 1 - y;
-  return `${tileBase}/${z}/${x}/${tmsY}.pbf`;
-}
-
 export async function GET(request: Request) {
-  // Soft-limit: prefer empty tile over JSON 429 so MapLibre doesn't hard-fail tiles
-  const limited = enforceIpRateLimit(request, "tiles", 4000, 60);
-  if (limited) {
-    return emptyTile(false);
-  }
-
   const { searchParams } = new URL(request.url);
   const z = searchParams.get("z");
   const x = searchParams.get("x");
@@ -178,6 +185,13 @@ export async function GET(request: Request) {
     return Response.json({ error: "invalid z, x, y" }, { status: 400 });
   }
 
+  // Soft-limit: prefer zoom-aware empty tile over JSON 429 so MapLibre
+  // keeps parents (410) instead of treating a bare 204 as a real blank.
+  const limited = enforceIpRateLimit(request, "tiles", 4000, 60);
+  if (limited) {
+    return emptyTile(false, zi);
+  }
+
   const apiKey = process.env.LANDRECORDS_API_KEY;
   if (!apiKey) {
     return Response.json(
@@ -186,33 +200,24 @@ export async function GET(request: Request) {
     );
   }
 
-  const tileBase = process.env.LANDRECORDS_TILE_URL || DEFAULT_TILE_URL;
-
   const fetchExact = async (tz: number, tx: number, ty: number) => {
-    const result = await fetchUpstreamTile(
-      tileUrl(tileBase, tz, tx, ty),
-      apiKey
-    );
+    const result = await fetchUpstreamTile(tz, tx, ty, apiKey);
     if (result.kind === "mvt") return result.buf;
     return null;
   };
 
-  const exact = await fetchUpstreamTile(tileUrl(tileBase, zi, xi, yi), apiKey);
+  const exact = await fetchUpstreamTile(zi, xi, yi, apiKey);
 
   if (exact.kind === "mvt") {
     return mvtResponse(exact.buf);
   }
 
   if (exact.kind === "error") {
-    console.warn(
-      "LandRecords tile error:",
-      exact.detail,
-      tileUrl(tileBase, zi, xi, yi)
-    );
+    console.warn("LandRecords tile error:", exact.detail, `${zi}/${xi}/${yi}`);
     // Still attempt gap-fill — sparse seeding often 404s while neighbors exist
   }
 
-  // Sparse GWC: synthesize missing zooms from children (Cedar Hill/Houston) or parent (DeSoto)
+  // Sparse GWC: synthesize missing zooms from children or parent
   try {
     const filled = await fillSparseParcelTile(zi, xi, yi, fetchExact);
     if (filled && looksLikeMvt(filled)) {

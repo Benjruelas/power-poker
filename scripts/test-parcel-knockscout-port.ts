@@ -20,10 +20,12 @@ import {
   PARCEL_LAYER_MIN_ZOOM,
   PARCEL_SOURCE_LAYERS,
   PARCEL_SOURCE_MIN_ZOOM,
+  PARCEL_TILE_MAXZOOM,
   parcelFillLayerId,
   parcelLineLayerId,
   parcelPromoteId,
   parcelPromoteIdMatches,
+  parcelTileUrl,
 } from "../src/lib/landrecords/parcelTiles";
 
 function testParcelTilesConfig() {
@@ -33,14 +35,19 @@ function testParcelTilesConfig() {
   assert.equal(parcelLineLayerId("parcel_us"), "parcels-line");
   assert.equal(parcelLineLayerId("parcels"), "parcels-line-parcels");
   assert.ok(PARCEL_FILL_LAYERS.includes("parcels-fill-parcels"));
-  assert.ok(PARCEL_FILL_LAYERS.includes("parcels-z16-fill-parcels"));
+  assert.ok(!PARCEL_FILL_LAYERS.some((id) => id.includes("z16")));
   const spec = parcelPromoteId();
   assert.deepEqual(spec, { parcel_us: "lrid", parcels: "lrid" });
   assert.equal(parcelPromoteIdMatches(spec), true);
   assert.equal(parcelPromoteIdMatches({ parcel_us: "lrid" }), false);
   assert.equal(PARCEL_SOURCE_MIN_ZOOM, 14);
   assert.equal(PARCEL_LAYER_MIN_ZOOM, 15);
+  assert.equal(PARCEL_TILE_MAXZOOM, 17);
   assert.ok(PARCEL_SOURCE_MIN_ZOOM < PARCEL_LAYER_MIN_ZOOM);
+  assert.equal(
+    parcelTileUrl("http://localhost:3000"),
+    "http://localhost:3000/api/tiles?z={z}&x={x}&y={y}&v=4"
+  );
 }
 
 function testEmptyTileStatus() {
@@ -48,6 +55,7 @@ function testEmptyTileStatus() {
   assert.equal(emptyParcelTileStatus(NaN), 204);
   assert.equal(emptyParcelTileStatus(15), 410);
   assert.equal(emptyParcelTileStatus(16), 410);
+  assert.equal(emptyParcelTileStatus(17), 410);
 }
 
 function testParcelLookup() {

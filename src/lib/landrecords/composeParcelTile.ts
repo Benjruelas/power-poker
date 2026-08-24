@@ -164,9 +164,9 @@ export async function fillSparseParcelTile(
 ): Promise<Buffer | null> {
   if (z < 0 || z > 22 || depth > 2) return null;
 
-  // Prefer higher-detail children (e.g. empty z15 ← four z16 tiles).
+  // Prefer higher-detail children (e.g. empty z15 ← four z16; empty z16 ← z17).
   // Children are exact-only — synthesizing a child from this parent would cycle.
-  if (z < 16) {
+  if (z < 17) {
     const childZ = z + 1;
     const coords = [
       [x * 2, y * 2],

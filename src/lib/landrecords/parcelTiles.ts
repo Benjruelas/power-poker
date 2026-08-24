@@ -6,65 +6,46 @@
  *
  * Cedar Hill, TX is majority `parcels`; downtown Dallas is majority `parcel_us`.
  * Painting only `parcel_us` leaves checkerboard holes that look location-specific.
+ *
+ * Single MapLibre source (minzoom 14, maxzoom 17) + HTTP 410 for empty tiles
+ * above minzoom keeps parent tiles in sparse areas (KnockScout pattern).
  */
 
 export const PARCEL_SOURCE_MIN_ZOOM = 14;
 export const PARCEL_LAYER_MIN_ZOOM = 15;
-export const PARCEL_BASE_MAXZOOM = 15;
-export const PARCEL_DETAIL_ZOOM = 16;
+/** Some metros (e.g. Duncanville) are empty at z16 but populated at z17. */
+export const PARCEL_TILE_MAXZOOM = 17;
 
 export const PARCEL_SOURCE_ID = "parcels";
-export const PARCEL_SOURCE_ID_Z16 = "parcels-z16";
-export const PARCEL_SOURCES = [PARCEL_SOURCE_ID, PARCEL_SOURCE_ID_Z16] as const;
 
 export const PARCEL_SOURCE_LAYERS = ["parcel_us", "parcels"] as const;
 export type ParcelSourceLayer = (typeof PARCEL_SOURCE_LAYERS)[number];
 
-export function parcelFillLayerId(
-  sourceLayer: ParcelSourceLayer,
-  detail = false
-): string {
-  const base =
-    sourceLayer === "parcel_us" ? "parcels-fill" : `parcels-fill-${sourceLayer}`;
-  return detail ? base.replace("parcels-fill", "parcels-z16-fill") : base;
+/** Cache-bust after sparse-pyramid / maxzoom-17 tile handling. */
+export const PARCEL_TILE_URL_VERSION = 4;
+
+export function parcelFillLayerId(sourceLayer: ParcelSourceLayer): string {
+  return sourceLayer === "parcel_us"
+    ? "parcels-fill"
+    : `parcels-fill-${sourceLayer}`;
 }
 
-export function parcelLineLayerId(
-  sourceLayer: ParcelSourceLayer,
-  detail = false
-): string {
-  const base =
-    sourceLayer === "parcel_us" ? "parcels-line" : `parcels-line-${sourceLayer}`;
-  return detail ? base.replace("parcels-line", "parcels-z16-line") : base;
+export function parcelLineLayerId(sourceLayer: ParcelSourceLayer): string {
+  return sourceLayer === "parcel_us"
+    ? "parcels-line"
+    : `parcels-line-${sourceLayer}`;
 }
 
-export function parcelLineHaloLayerId(
-  sourceLayer: ParcelSourceLayer,
-  detail = false
-): string {
-  const base =
-    sourceLayer === "parcel_us"
-      ? "parcels-line-halo"
-      : `parcels-line-halo-${sourceLayer}`;
-  return detail
-    ? base.replace("parcels-line-halo", "parcels-z16-line-halo")
-    : base;
+export function parcelLineHaloLayerId(sourceLayer: ParcelSourceLayer): string {
+  return sourceLayer === "parcel_us"
+    ? "parcels-line-halo"
+    : `parcels-line-halo-${sourceLayer}`;
 }
 
-export const PARCEL_FILL_LAYERS = [
-  ...PARCEL_SOURCE_LAYERS.map((layer) => parcelFillLayerId(layer, false)),
-  ...PARCEL_SOURCE_LAYERS.map((layer) => parcelFillLayerId(layer, true)),
-] as const;
-
-export const PARCEL_LINE_LAYERS = [
-  ...PARCEL_SOURCE_LAYERS.map((layer) => parcelLineLayerId(layer, false)),
-  ...PARCEL_SOURCE_LAYERS.map((layer) => parcelLineLayerId(layer, true)),
-] as const;
-
-export const PARCEL_LINE_HALO_LAYERS = [
-  ...PARCEL_SOURCE_LAYERS.map((layer) => parcelLineHaloLayerId(layer, false)),
-  ...PARCEL_SOURCE_LAYERS.map((layer) => parcelLineHaloLayerId(layer, true)),
-] as const;
+export const PARCEL_FILL_LAYERS = PARCEL_SOURCE_LAYERS.map(parcelFillLayerId);
+export const PARCEL_LINE_LAYERS = PARCEL_SOURCE_LAYERS.map(parcelLineLayerId);
+export const PARCEL_LINE_HALO_LAYERS =
+  PARCEL_SOURCE_LAYERS.map(parcelLineHaloLayerId);
 
 export const PARCEL_ALL_STYLE_LAYERS = [
   ...PARCEL_FILL_LAYERS,
@@ -82,6 +63,11 @@ export function parcelPromoteIdMatches(actual: unknown): boolean {
   if (!actual || typeof actual !== "object") return false;
   const obj = actual as Record<string, unknown>;
   return PARCEL_SOURCE_LAYERS.every((layer) => obj[layer] === "lrid");
+}
+
+/** Same-origin parcel vector tiles (LandRecords via /api/tiles). */
+export function parcelTileUrl(origin = ""): string {
+  return `${origin}/api/tiles?z={z}&x={x}&y={y}&v=${PARCEL_TILE_URL_VERSION}`;
 }
 
 /**
