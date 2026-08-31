@@ -19,6 +19,7 @@ import {
   ParcelReviewButtons,
 } from "@/components/parcel/ParcelReviewButtons";
 import { ParcelGridScreeningTab } from "@/components/panels/ParcelGridScreeningTab";
+import { CopyParcelLinkButton } from "@/components/share/CopyParcelLinkButton";
 import { ShareParcelSheet } from "@/components/share/ShareParcelSheet";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -182,7 +183,8 @@ export function ParcelDetailsPanel({ substations = null }: Props) {
           ) : null}
         </div>
         <div className="flex shrink-0 gap-1">
-          <ShareParcelSheet parcel={selected} />
+          <CopyParcelLinkButton key={`copy-${selected.id}`} parcel={selected} />
+          <ShareParcelSheet key={`share-${selected.id}`} parcel={selected} />
           <Button
             variant="ghost"
             size="icon"

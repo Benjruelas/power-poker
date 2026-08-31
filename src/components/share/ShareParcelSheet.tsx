@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Check, Copy, Loader2, MessageSquare, Share2 } from "lucide-react";
 
 import type { SelectedParcel } from "@/lib/landrecords/parcelPropertyMap";
 import { toParcelListItem } from "@/lib/landrecords/parcelListItem";
-import { formatAcres, toSharePayload } from "@/lib/share/clientShare";
+import { createShareUrl, formatAcres } from "@/lib/share/clientShare";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -34,28 +34,14 @@ export function ShareParcelSheet({ parcel }: { parcel: SelectedParcel }) {
   const item = toParcelListItem(parcel);
   const acresLabel = formatAcres(item.acres);
 
-  useEffect(() => {
-    setShareUrl("");
-    setCopied(false);
-    setError("");
-  }, [parcel.id, parcel.lat, parcel.lng]);
-
   const ensureLink = async () => {
     if (shareUrl) return shareUrl;
     setBusy(true);
     setError("");
     try {
-      const res = await fetch("/api/share-links", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(toSharePayload(parcel)),
-      });
-      const data = (await res.json()) as { shareUrl?: string; error?: string };
-      if (!res.ok || !data.shareUrl) {
-        throw new Error(data.error || "Failed to create share link");
-      }
-      setShareUrl(data.shareUrl);
-      return data.shareUrl;
+      const url = await createShareUrl(parcel);
+      setShareUrl(url);
+      return url;
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to create link";
       setError(msg);

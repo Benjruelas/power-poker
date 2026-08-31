@@ -4,6 +4,8 @@ import { toParcelListItem } from "@/lib/landrecords/parcelListItem";
 export type ParcelSharePreview = {
   address: string;
   parcelId: string;
+  /** LandRecords lrid when known — preferred for map deep-link matching */
+  lrid?: string;
   acres: number | null;
   lat: number;
   lng: number;
@@ -12,6 +14,17 @@ export type ParcelSharePreview = {
   /** Unix seconds expiry */
   exp: number;
 };
+
+/** Query string that opens the map with this parcel selected and centered. */
+export function parcelMapHref(preview: ParcelSharePreview): string {
+  const id = (preview.lrid || preview.parcelId || "").trim();
+  const params = new URLSearchParams({
+    lat: String(preview.lat),
+    lng: String(preview.lng),
+  });
+  if (id) params.set("lrid", id);
+  return `/?${params.toString()}`;
+}
 
 const TOKEN_TTL_SEC = 60 * 60 * 24 * 30; // 30 days
 const MAX_ADDR = 160;
@@ -124,9 +137,11 @@ export function buildParcelSharePreview(
 ): ParcelSharePreview {
   const item = toParcelListItem(parcel);
   const address = (item.address || "").trim().slice(0, MAX_ADDR);
+  const lrid = (item.lrid || "").trim() || undefined;
   return {
     address: address || `Parcel ${item.parcelId}`,
     parcelId: item.parcelId,
+    lrid,
     acres: item.acres,
     lat: item.latitude,
     lng: item.longitude,
@@ -143,6 +158,7 @@ export async function encodeParcelShareToken(
     v: 1 as const,
     a: preview.address,
     i: preview.parcelId,
+    lr: preview.lrid || undefined,
     ac: preview.acres,
     lat: preview.lat,
     lng: preview.lng,
@@ -174,6 +190,7 @@ export async function decodeParcelShareToken(
       v?: number;
       a?: string;
       i?: string;
+      lr?: string;
       ac?: number | null;
       lat?: number;
       lng?: number;
@@ -194,9 +211,11 @@ export async function decodeParcelShareToken(
       acresRaw == null || acresRaw === ("" as unknown)
         ? null
         : Number(acresRaw);
+    const lrid = body.lr ? String(body.lr).trim() : undefined;
     return {
       address: String(body.a || "").trim(),
       parcelId: String(body.i || "").trim(),
+      lrid: lrid || undefined,
       acres: Number.isFinite(acres as number) ? (acres as number) : null,
       lat,
       lng,
