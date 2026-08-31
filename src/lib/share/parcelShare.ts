@@ -247,5 +247,38 @@ export function mapboxSatelliteUrl(
 }
 
 export function parcelSharePath(token: string): string {
-  return `/p/${encodeURIComponent(token)}`;
+  // Short ids are URL-safe; legacy JWTs still need encoding.
+  const safe = token.includes(".") ? encodeURIComponent(token) : token;
+  return `/p/${safe}`;
+}
+
+/** Prefer production / public host so copied links work when texted. */
+export function publicAppOrigin(request?: Request): string {
+  const fromEnv = (
+    process.env.NEXT_PUBLIC_APP_URL ||
+    (process.env.VERCEL_PROJECT_PRODUCTION_URL
+      ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+      : "")
+  ).replace(/\/$/, "");
+  if (fromEnv) return fromEnv;
+
+  if (request) {
+    const host =
+      request.headers.get("x-forwarded-host") ||
+      request.headers.get("host") ||
+      "";
+    const proto = request.headers.get("x-forwarded-proto") || "https";
+    if (host) return `${proto}://${host.split(",")[0]!.trim()}`;
+    try {
+      return new URL(request.url).origin;
+    } catch {
+      /* fall through */
+    }
+  }
+  return "https://bess-site-finder.vercel.app";
+}
+
+export function absoluteShareUrl(path: string, request?: Request): string {
+  const origin = publicAppOrigin(request);
+  return `${origin}${path.startsWith("/") ? path : `/${path}`}`;
 }
