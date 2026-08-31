@@ -2,11 +2,13 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { OpenMapRedirect } from "@/components/share/OpenMapRedirect";
 import {
   decodeParcelShareToken,
   formatAcres,
   formatAddressLines,
   mapboxSatelliteUrl,
+  parcelMapHref,
   previewDescription,
   previewTitle,
 } from "@/lib/share/parcelShare";
@@ -51,10 +53,11 @@ export default async function ParcelSharePage({ params }: Props) {
   const lines = formatAddressLines(preview.address);
   const acres = formatAcres(preview.acres);
   const sat = mapboxSatelliteUrl(preview.lat, preview.lng, 1200, 630, 16);
-  const mapHref = `/?lat=${preview.lat}&lng=${preview.lng}&lrid=${encodeURIComponent(preview.parcelId)}`;
+  const mapHref = parcelMapHref(preview);
 
   return (
     <main className="min-h-dvh bg-slate-950 text-white">
+      <OpenMapRedirect href={mapHref} />
       <div className="relative mx-auto max-w-lg overflow-hidden">
         <div
           className="relative aspect-[1200/630] w-full bg-slate-900"
@@ -82,6 +85,9 @@ export default async function ParcelSharePage({ params }: Props) {
         </div>
 
         <div className="space-y-4 px-6 py-6">
+          <p className="text-center text-sm text-white/70">
+            Opening map…
+          </p>
           <dl className="space-y-3 text-sm">
             {preview.parcelId ? (
               <div className="flex justify-between gap-4 border-b border-white/10 pb-2">
