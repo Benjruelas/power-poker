@@ -64,13 +64,17 @@ export default async function ParcelSharePage({ params }: Props) {
           style={
             sat
               ? {
-                  backgroundImage: `linear-gradient(rgba(0,0,0,.45), rgba(0,0,0,.65)), url(${sat})`,
+                  backgroundImage: `url(${sat})`,
                   backgroundSize: "cover",
                   backgroundPosition: "center",
                 }
               : undefined
           }
         >
+          <div
+            className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/50 to-black/25"
+            aria-hidden
+          />
           <div className="absolute inset-0 flex flex-col justify-end p-6">
             <p className="text-xs font-semibold uppercase tracking-wider text-emerald-300">
               Power Poker

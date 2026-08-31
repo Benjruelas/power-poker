@@ -58,11 +58,13 @@ export default async function Image({ params }: Props) {
           />
         ) : null}
 
+        {/* Scrim between satellite image and text for readability */}
         <div
           style={{
             position: "absolute",
             inset: 0,
-            background: "rgba(0,0,0,0.52)",
+            background:
+              "linear-gradient(180deg, rgba(0,0,0,0.28) 0%, rgba(0,0,0,0.55) 45%, rgba(0,0,0,0.78) 100%)",
             display: "flex",
           }}
         />
