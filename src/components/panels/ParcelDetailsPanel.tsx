@@ -183,8 +183,8 @@ export function ParcelDetailsPanel({ substations = null }: Props) {
           ) : null}
         </div>
         <div className="flex shrink-0 gap-1">
-          <CopyParcelLinkButton parcel={selected} />
-          <ShareParcelSheet parcel={selected} />
+          <CopyParcelLinkButton key={`copy-${selected.id}`} parcel={selected} />
+          <ShareParcelSheet key={`share-${selected.id}`} parcel={selected} />
           <Button
             variant="ghost"
             size="icon"

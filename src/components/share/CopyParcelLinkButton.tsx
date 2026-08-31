@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Check, Copy, Loader2 } from "lucide-react";
 
 import type { SelectedParcel } from "@/lib/landrecords/parcelPropertyMap";
@@ -11,11 +11,6 @@ export function CopyParcelLinkButton({ parcel }: { parcel: SelectedParcel }) {
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState(false);
-
-  useEffect(() => {
-    setCopied(false);
-    setError(false);
-  }, [parcel.id, parcel.lat, parcel.lng]);
 
   const handleCopy = async () => {
     if (busy) return;

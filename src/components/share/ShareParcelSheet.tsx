@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Check, Copy, Loader2, MessageSquare, Share2 } from "lucide-react";
 
 import type { SelectedParcel } from "@/lib/landrecords/parcelPropertyMap";
@@ -33,12 +33,6 @@ export function ShareParcelSheet({ parcel }: { parcel: SelectedParcel }) {
 
   const item = toParcelListItem(parcel);
   const acresLabel = formatAcres(item.acres);
-
-  useEffect(() => {
-    setShareUrl("");
-    setCopied(false);
-    setError("");
-  }, [parcel.id, parcel.lat, parcel.lng]);
 
   const ensureLink = async () => {
     if (shareUrl) return shareUrl;
