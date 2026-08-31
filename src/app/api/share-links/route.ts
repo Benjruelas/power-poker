@@ -1,9 +1,15 @@
 import {
+  absoluteShareUrl,
   buildParcelSharePreview,
   encodeParcelShareToken,
   parcelSharePath,
   type ParcelSharePreview,
 } from "@/lib/share/parcelShare";
+import {
+  newShareId,
+  putSharePreview,
+  shareStorageAvailable,
+} from "@/lib/share/shareStore";
 import type { SelectedParcel } from "@/lib/landrecords/parcelPropertyMap";
 import { enforceIpRateLimit } from "@/lib/landrecords/rateLimit";
 
@@ -17,6 +23,7 @@ type Body = {
   lng?: number;
   ownerName?: string;
   county?: string;
+  lrid?: string;
   /** Full selected parcel — preferred when available */
   parcel?: SelectedParcel;
 };
@@ -48,6 +55,7 @@ export async function POST(request: Request) {
     preview = {
       address: String(body.address || `Parcel ${parcelId}`).trim(),
       parcelId,
+      lrid: body.lrid ? String(body.lrid).trim() : undefined,
       acres:
         body.acres == null || !Number.isFinite(Number(body.acres))
           ? null
@@ -60,10 +68,29 @@ export async function POST(request: Request) {
     };
   }
 
-  const token = await encodeParcelShareToken(preview);
+  let token: string;
+  if (shareStorageAvailable()) {
+    let stored = false;
+    token = newShareId();
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        await putSharePreview(token, preview);
+        stored = true;
+        break;
+      } catch (e) {
+        console.error("short share store attempt failed", e);
+        token = newShareId();
+      }
+    }
+    if (!stored) {
+      token = await encodeParcelShareToken(preview);
+    }
+  } else {
+    token = await encodeParcelShareToken(preview);
+  }
+
   const path = parcelSharePath(token);
-  const origin = new URL(request.url).origin;
-  const shareUrl = `${origin}${path}`;
+  const shareUrl = absoluteShareUrl(path, request);
 
   return Response.json(
     { shareUrl, path, token, preview },

@@ -1,22 +1,22 @@
 import { ImageResponse } from "next/og";
 
 import {
-  decodeParcelShareToken,
   formatAcres,
   formatAddressLines,
   mapboxSatelliteUrl,
 } from "@/lib/share/parcelShare";
+import { resolveParcelSharePreview } from "@/lib/share/shareResolve";
 
 export const alt = "Parcel share preview";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
-export const runtime = "edge";
+export const runtime = "nodejs";
 
 type Props = { params: Promise<{ token: string }> };
 
 export default async function Image({ params }: Props) {
   const { token } = await params;
-  const preview = await decodeParcelShareToken(decodeURIComponent(token));
+  const preview = await resolveParcelSharePreview(token);
 
   const addressLines = formatAddressLines(preview?.address || "");
   const parcelId = preview?.parcelId ? `Parcel ${preview.parcelId}` : "";

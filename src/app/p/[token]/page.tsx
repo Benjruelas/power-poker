@@ -4,7 +4,6 @@ import { notFound } from "next/navigation";
 
 import { OpenMapRedirect } from "@/components/share/OpenMapRedirect";
 import {
-  decodeParcelShareToken,
   formatAcres,
   formatAddressLines,
   mapboxSatelliteUrl,
@@ -12,12 +11,13 @@ import {
   previewDescription,
   previewTitle,
 } from "@/lib/share/parcelShare";
+import { resolveParcelSharePreview } from "@/lib/share/shareResolve";
 
 type Props = { params: Promise<{ token: string }> };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { token } = await params;
-  const preview = await decodeParcelShareToken(decodeURIComponent(token));
+  const preview = await resolveParcelSharePreview(token);
   if (!preview) {
     return {
       title: "Shared parcel · Power Poker",
@@ -47,7 +47,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function ParcelSharePage({ params }: Props) {
   const { token } = await params;
-  const preview = await decodeParcelShareToken(decodeURIComponent(token));
+  const preview = await resolveParcelSharePreview(token);
   if (!preview) notFound();
 
   const lines = formatAddressLines(preview.address);
@@ -85,9 +85,7 @@ export default async function ParcelSharePage({ params }: Props) {
         </div>
 
         <div className="space-y-4 px-6 py-6">
-          <p className="text-center text-sm text-white/70">
-            Opening map…
-          </p>
+          <p className="text-center text-sm text-white/70">Opening map…</p>
           <dl className="space-y-3 text-sm">
             {preview.parcelId ? (
               <div className="flex justify-between gap-4 border-b border-white/10 pb-2">
