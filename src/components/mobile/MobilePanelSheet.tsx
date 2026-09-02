@@ -74,8 +74,9 @@ export function MobilePanelSheet({
       <SheetContent
         side="bottom"
         showCloseButton
-        // Leave room for the floating action bar so it stays tappable above the sheet
-        className="inset-x-0 bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px))] h-[calc(100dvh-4.5rem-env(safe-area-inset-bottom,0px))] max-h-[calc(100dvh-4.5rem-env(safe-area-inset-bottom,0px))] w-full gap-0 overflow-hidden rounded-t-2xl border-x-0 border-b-0 border-t p-0 sm:max-w-none"
+        // Leave room for the floating action bar so it stays tappable above the sheet.
+        // !important beats Sheet defaults: data-[side=bottom]:bottom-0 and :h-auto.
+        className="inset-x-0 !bottom-[calc(5.5rem+env(safe-area-inset-bottom,0px))] !h-[calc(100dvh-5.5rem-env(safe-area-inset-bottom,0px))] max-h-[calc(100dvh-5.5rem-env(safe-area-inset-bottom,0px))] w-full gap-0 overflow-hidden rounded-t-2xl border-x-0 border-b-0 border-t p-0 data-[side=bottom]:!bottom-[calc(5.5rem+env(safe-area-inset-bottom,0px))] data-[side=bottom]:!h-[calc(100dvh-5.5rem-env(safe-area-inset-bottom,0px))] sm:max-w-none"
       >
         <div className="flex h-full min-h-0 flex-col bg-background">
           <div
