@@ -6,7 +6,7 @@ import { Separator } from "@/components/ui/separator";
 
 export function AboutPanel({ meta }: { meta: DataMeta | null }) {
   return (
-    <ScrollArea className="h-full">
+    <ScrollArea className="h-full min-h-0">
       <div className="space-y-4 px-4 py-4 text-sm">
         <div>
           <h2 className="text-base font-semibold">Power Poker</h2>

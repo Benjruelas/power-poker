@@ -50,8 +50,8 @@ export function ShortlistPanel() {
           : "Shared with team";
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex gap-0.5 border-b px-2 pt-2">
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex shrink-0 gap-0.5 border-b px-2 pt-2">
         {(
           [
             ["sites", "Sites"],
@@ -75,7 +75,7 @@ export function ShortlistPanel() {
       </div>
       <p
         className={cn(
-          "border-b px-4 py-1.5 text-[11px]",
+          "shrink-0 border-b px-4 py-1.5 text-[11px]",
           listsStatus === "error"
             ? "bg-amber-50 text-amber-800"
             : "text-muted-foreground"
@@ -122,7 +122,7 @@ function SiteListsSection() {
 
   return (
     <>
-      <div className="space-y-3 border-b px-4 py-3">
+      <div className="shrink-0 space-y-3 border-b px-4 py-3">
         <h2 className="text-sm font-semibold">Site review</h2>
         <p className="text-xs text-muted-foreground">
           Shared Yes / No lists. Reviewed substations are removed from the map.
@@ -161,7 +161,7 @@ function SiteListsSection() {
         </div>
       ) : (
         <>
-          <div className="flex items-center justify-between gap-2 border-b px-4 py-2">
+          <div className="flex shrink-0 items-center justify-between gap-2 border-b px-4 py-2">
             <div className="flex items-center gap-2">
               <Label className="text-xs text-muted-foreground">Sort</Label>
               <Select
@@ -189,7 +189,7 @@ function SiteListsSection() {
               CSV
             </Button>
           </div>
-          <ScrollArea className="flex-1">
+          <ScrollArea className="min-h-0 flex-1">
             <ul className="space-y-2 px-4 py-3">
               {items.length === 0 && (
                 <li className="text-sm text-muted-foreground">
@@ -325,7 +325,7 @@ function ParcelListsSection() {
 
   return (
     <>
-      <div className="space-y-3 border-b px-4 py-3">
+      <div className="shrink-0 space-y-3 border-b px-4 py-3">
         <h2 className="text-sm font-semibold">Parcel review</h2>
         <p className="text-xs text-muted-foreground">
           Shared Yes / No lists. Reviewed parcels turn green or red on the map.
@@ -364,7 +364,7 @@ function ParcelListsSection() {
         </div>
       ) : (
         <>
-          <div className="flex items-center justify-between gap-2 border-b px-4 py-2">
+          <div className="flex shrink-0 items-center justify-between gap-2 border-b px-4 py-2">
             <div className="flex items-center gap-2">
               <Label className="text-xs text-muted-foreground">Sort</Label>
               <Select
@@ -394,7 +394,7 @@ function ParcelListsSection() {
               CSV
             </Button>
           </div>
-          <ScrollArea className="flex-1">
+          <ScrollArea className="min-h-0 flex-1">
             <ul className="space-y-2 px-4 py-3">
               {items.length === 0 && (
                 <li className="text-sm text-muted-foreground">

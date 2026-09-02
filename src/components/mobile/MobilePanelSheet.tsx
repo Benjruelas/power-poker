@@ -75,7 +75,7 @@ export function MobilePanelSheet({
         side="bottom"
         showCloseButton
         // Leave room for the floating action bar so it stays tappable above the sheet
-        className="inset-x-0 bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px))] h-[calc(100dvh-4.5rem-env(safe-area-inset-bottom,0px))] max-h-[calc(100dvh-4.5rem-env(safe-area-inset-bottom,0px))] w-full gap-0 rounded-t-2xl border-x-0 border-b-0 border-t p-0 sm:max-w-none"
+        className="inset-x-0 bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px))] h-[calc(100dvh-4.5rem-env(safe-area-inset-bottom,0px))] max-h-[calc(100dvh-4.5rem-env(safe-area-inset-bottom,0px))] w-full gap-0 overflow-hidden rounded-t-2xl border-x-0 border-b-0 border-t p-0 sm:max-w-none"
       >
         <div className="flex h-full min-h-0 flex-col bg-background">
           <div
@@ -88,13 +88,16 @@ export function MobilePanelSheet({
               <SheetTitle>{title}</SheetTitle>
             </SheetHeader>
           ) : (
-            <SheetHeader className="flex-row items-center gap-2 border-b px-4 py-3 pr-12 text-left">
+            <SheetHeader className="shrink-0 flex-row items-center gap-2 border-b px-4 py-3 pr-12 text-left">
               <SheetTitle className="text-base font-semibold">
                 {title}
               </SheetTitle>
             </SheetHeader>
           )}
-          <div className="min-h-0 flex-1 overflow-hidden">{body}</div>
+          {/* flex-col + min-h-0 so nested panel ScrollAreas get a bounded height */}
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            {body}
+          </div>
         </div>
       </SheetContent>
     </Sheet>

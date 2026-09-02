@@ -138,10 +138,10 @@ export function ParcelDetailsPanel({ substations = null }: Props) {
 
   return (
     <div
-      className="flex h-full flex-col"
+      className="flex h-full min-h-0 flex-col"
       data-parcel-details-panel
     >
-      <div className="flex items-start gap-2 border-b px-4 py-3">
+      <div className="flex shrink-0 items-start gap-2 border-b px-4 py-3">
         <div className="min-w-0 flex-1">
           <h2 className="text-base font-semibold leading-tight text-foreground">
             {selected.address}
@@ -197,11 +197,11 @@ export function ParcelDetailsPanel({ substations = null }: Props) {
         </div>
       </div>
 
-      <div className="border-b px-4 py-2">
+      <div className="shrink-0 border-b px-4 py-2">
         <ParcelReviewButtons parcelId={selected.id} parcel={selected} />
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2">
         <a
           href={mapsUrl}
           target="_blank"
@@ -213,7 +213,7 @@ export function ParcelDetailsPanel({ substations = null }: Props) {
         </a>
       </div>
 
-      <div className="flex gap-0.5 overflow-x-auto border-b px-2">
+      <div className="flex shrink-0 gap-0.5 overflow-x-auto border-b px-2">
         {TABS.map((t) => (
           <button
             key={t.id}
@@ -231,7 +231,7 @@ export function ParcelDetailsPanel({ substations = null }: Props) {
         ))}
       </div>
 
-      <ScrollArea className="flex-1">
+      <ScrollArea className="min-h-0 flex-1">
         <div className="space-y-4 px-4 py-3">
           {tab === "overview" ? (
             <>
