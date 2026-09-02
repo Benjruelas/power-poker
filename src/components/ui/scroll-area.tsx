@@ -13,12 +13,14 @@ function ScrollArea({
   return (
     <ScrollAreaPrimitive.Root
       data-slot="scroll-area"
-      className={cn("relative", className)}
+      // min-h-0 lets flex-1 roots shrink below content size so the viewport
+      // can overflow and scroll (mobile sheets + docked panels).
+      className={cn("relative flex min-h-0 flex-col overflow-hidden", className)}
       {...props}
     >
       <ScrollAreaPrimitive.Viewport
         data-slot="scroll-area-viewport"
-        className="size-full rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1"
+        className="min-h-0 w-full flex-1 rounded-[inherit] transition-[color,box-shadow] outline-none overscroll-contain focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1"
       >
         {children}
       </ScrollAreaPrimitive.Viewport>

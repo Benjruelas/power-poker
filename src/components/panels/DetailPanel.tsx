@@ -84,8 +84,8 @@ export function DetailPanel() {
   );
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-start justify-between gap-2 border-b px-4 py-3">
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex shrink-0 items-start justify-between gap-2 border-b px-4 py-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <h2 className="truncate text-base font-semibold">{selected.name}</h2>
@@ -105,7 +105,7 @@ export function DetailPanel() {
         </Button>
       </div>
 
-      <ScrollArea className="flex-1">
+      <ScrollArea className="min-h-0 flex-1">
         <div className="space-y-4 px-4 py-4">
           <div className="space-y-1.5">
             <SubstationReviewButtons

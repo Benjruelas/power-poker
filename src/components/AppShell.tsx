@@ -238,16 +238,16 @@ export function AppShell() {
                 About
               </TabsTrigger>
             </TabsList>
-            <TabsContent value="details" className="mt-0 min-h-0 flex-1">
+            <TabsContent value="details" className="mt-0 min-h-0 flex-1 overflow-hidden">
               <DetailPanel />
             </TabsContent>
-            <TabsContent value="parcel" className="mt-0 min-h-0 flex-1">
+            <TabsContent value="parcel" className="mt-0 min-h-0 flex-1 overflow-hidden">
               <ParcelDetailsPanel substations={substations} />
             </TabsContent>
-            <TabsContent value="lists" className="mt-0 min-h-0 flex-1">
+            <TabsContent value="lists" className="mt-0 min-h-0 flex-1 overflow-hidden">
               <ShortlistPanel />
             </TabsContent>
-            <TabsContent value="about" className="mt-0 min-h-0 flex-1">
+            <TabsContent value="about" className="mt-0 min-h-0 flex-1 overflow-hidden">
               <AboutPanel meta={meta} />
             </TabsContent>
           </Tabs>
