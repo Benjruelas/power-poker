@@ -15,6 +15,12 @@ const LAYERS = {
     "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile",
   labels:
     "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile",
+  /** Light street basemap without labels (Carto Positron replacement). */
+  "street-base":
+    "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile",
+  /** Place names / roads for street mode — rendered above data layers. */
+  "street-labels":
+    "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile",
 } as const;
 
 type LayerKey = keyof typeof LAYERS;
@@ -115,7 +121,13 @@ export async function GET(request: Request) {
   const y = searchParams.get("y");
   const layerParam = (searchParams.get("layer") || "imagery").toLowerCase();
   const layer: LayerKey =
-    layerParam === "labels" ? "labels" : "imagery";
+    layerParam === "labels"
+      ? "labels"
+      : layerParam === "street-base"
+        ? "street-base"
+        : layerParam === "street-labels"
+          ? "street-labels"
+          : "imagery";
 
   if (z == null || x == null || y == null) {
     return Response.json({ error: "z, x, y required" }, { status: 400 });
