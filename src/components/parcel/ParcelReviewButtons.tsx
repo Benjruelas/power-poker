@@ -2,6 +2,7 @@
 
 import { Check, X } from "lucide-react";
 
+import { promoteParcelToCrm } from "@/lib/crm/client";
 import type { SelectedParcel } from "@/lib/landrecords/parcelPropertyMap";
 import type { ParcelReview } from "@/lib/lists/parcelReview";
 import { useAppStore } from "@/lib/store";
@@ -25,9 +26,17 @@ export function ParcelReviewButtons({
     return null;
   });
   const setParcelReview = useAppStore((s) => s.setParcelReview);
+  const parcelFocus = useAppStore((s) => s.parcelFocus);
+  const selectedParcel = useAppStore((s) => s.selectedParcel);
 
   const toggle = (next: ParcelReview) => {
-    setParcelReview(parcel ?? null, review === next ? null : next);
+    const clearing = review === next;
+    const target = parcel ?? parcelFocus ?? selectedParcel ?? null;
+    setParcelReview(target, clearing ? null : next);
+    // Yes promotes into CRM; clearing Yes does not delete the lead
+    if (!clearing && next === "yes" && target) {
+      void promoteParcelToCrm(target);
+    }
   };
 
   const btn =

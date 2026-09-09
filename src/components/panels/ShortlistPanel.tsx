@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Download, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { BriefcaseBusiness, Download, Trash2 } from "lucide-react";
 import {
   NO_PARCEL_LIST_ID,
   YES_PARCEL_LIST_ID,
@@ -328,7 +329,7 @@ function ParcelListsSection() {
       <div className="shrink-0 space-y-3 border-b px-4 py-3">
         <h2 className="text-sm font-semibold">Parcel review</h2>
         <p className="text-xs text-muted-foreground">
-          Shared Yes / No lists. Reviewed parcels turn green or red on the map.
+          Shared Yes / No lists. Yes parcels also enter the CRM pipeline.
         </p>
         <div className="flex gap-1 rounded-lg bg-muted/60 p-0.5">
           <button
@@ -356,6 +357,15 @@ function ParcelListsSection() {
             No ({noList?.items.length ?? 0})
           </button>
         </div>
+        {isYes && (
+          <Link
+            href="/crm"
+            className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-800 hover:bg-emerald-500/20"
+          >
+            <BriefcaseBusiness className="size-3.5" />
+            Open in CRM ({yesList?.items.length ?? 0})
+          </Link>
+        )}
       </div>
 
       {!active ? (

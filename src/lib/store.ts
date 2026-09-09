@@ -57,6 +57,12 @@ interface AppState {
   closeParcelPopup: () => void;
   panelTab: PanelTab;
   setPanelTab: (tab: PanelTab) => void;
+  /** Desktop filter sidebar visible */
+  filtersPanelOpen: boolean;
+  setFiltersPanelOpen: (open: boolean) => void;
+  /** Desktop detail/tabs sidebar visible */
+  detailPanelOpen: boolean;
+  setDetailPanelOpen: (open: boolean) => void;
   /** Which full-screen mobile panel is open (`null` = map-only). Desktop ignores this. */
   mobilePanel: MobilePanel | null;
   openMobilePanel: (panel: MobilePanel) => void;
@@ -165,6 +171,10 @@ export const useAppStore = create<AppState>()(
       closeParcelPopup: () => set({ parcelPopup: null, parcelFocus: null }),
       panelTab: "about",
       setPanelTab: (panelTab) => set({ panelTab }),
+      filtersPanelOpen: false,
+      setFiltersPanelOpen: (filtersPanelOpen) => set({ filtersPanelOpen }),
+      detailPanelOpen: false,
+      setDetailPanelOpen: (detailPanelOpen) => set({ detailPanelOpen }),
       mobilePanel: null,
       openMobilePanel: (panel) =>
         set({
@@ -439,6 +449,8 @@ export const useAppStore = create<AppState>()(
         activeListId: s.activeListId,
         activeParcelListId: s.activeParcelListId,
         filters: s.filters,
+        filtersPanelOpen: s.filtersPanelOpen,
+        detailPanelOpen: s.detailPanelOpen,
       }),
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<AppState>;
@@ -456,6 +468,8 @@ export const useAppStore = create<AppState>()(
           ),
           activeParcelListId:
             p.activeParcelListId ?? current.activeParcelListId,
+          filtersPanelOpen: p.filtersPanelOpen ?? current.filtersPanelOpen,
+          detailPanelOpen: p.detailPanelOpen ?? current.detailPanelOpen,
         };
       },
     }

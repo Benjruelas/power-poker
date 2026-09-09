@@ -1878,7 +1878,7 @@ export function BessMap({
     return () => window.removeEventListener("bess:fly-to", handler);
   }, []);
 
-  // Deep link from /p/{token} → /?lat=&lng=&lrid=
+  // Deep link from /p/{token} or CRM "View on map" → /?lat=&lng=&lrid=
   useEffect(() => {
     if (!mapReady) return;
     const sp = new URLSearchParams(window.location.search);
@@ -1891,6 +1891,7 @@ export function BessMap({
     url.searchParams.delete("lat");
     url.searchParams.delete("lng");
     url.searchParams.delete("lrid");
+    url.searchParams.delete("crmParcel");
     window.history.replaceState({}, "", url.pathname + url.search + url.hash);
   }, [mapReady]);
 
@@ -2003,7 +2004,7 @@ export function BessMap({
   flyToAddressRef.current = flyToAddress;
 
   return (
-    <div className="relative h-full min-h-[320px] w-full bg-[#e8eef4]">
+    <div className="relative h-full min-h-0 w-full bg-[#e8eef4]">
       <div ref={containerRef} className="absolute inset-0 h-full w-full" />
       {/* 2D overlay — WebGL circle layers were invisible on some setups.
           Canvas is transparent except dots, so place-labels on the map show through. */}

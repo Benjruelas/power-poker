@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { RotateCcw, Search, X } from "lucide-react";
+import { PanelLeftClose, RotateCcw, Search, X } from "lucide-react";
 import { useAppStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -27,12 +27,14 @@ interface FilterSidebarProps {
   counties: string[];
   visibleSubCount: number;
   totalSubCount: number;
+  onCollapse?: () => void;
 }
 
 export function FilterSidebar({
   counties,
   visibleSubCount,
   totalSubCount,
+  onCollapse,
 }: FilterSidebarProps) {
   const filters = useAppStore((s) => s.filters);
   const setFilters = useAppStore((s) => s.setFilters);
@@ -81,10 +83,23 @@ export function FilterSidebar({
             substations
           </p>
         </div>
-        <Button variant="ghost" size="sm" onClick={resetFilters}>
-          <RotateCcw className="size-3.5" />
-          Reset
-        </Button>
+        <div className="flex items-center gap-0.5">
+          <Button variant="ghost" size="sm" onClick={resetFilters}>
+            <RotateCcw className="size-3.5" />
+            Reset
+          </Button>
+          {onCollapse && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={onCollapse}
+              title="Hide filters"
+              aria-label="Hide filters"
+            >
+              <PanelLeftClose className="size-4" />
+            </Button>
+          )}
+        </div>
       </div>
 
       <ScrollArea className="min-h-0 flex-1">
