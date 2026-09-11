@@ -2,7 +2,6 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import {
   AUTH_COOKIE,
-  createAuthToken,
   getAuthSecret,
   isPasswordProtectionEnabled,
   verifyAuthToken,
