@@ -18,6 +18,7 @@ import {
   ParcelReviewBadge,
   ParcelReviewButtons,
 } from "@/components/parcel/ParcelReviewButtons";
+import { PropertyRadarButton } from "@/components/parcel/PropertyRadarButton";
 import { ParcelGridScreeningTab } from "@/components/panels/ParcelGridScreeningTab";
 import { CopyParcelLinkButton } from "@/components/share/CopyParcelLinkButton";
 import { ShareParcelSheet } from "@/components/share/ShareParcelSheet";
@@ -211,6 +212,23 @@ export function ParcelDetailsPanel({ substations = null }: Props) {
           <ExternalLink className="size-3.5" />
           Directions
         </a>
+        <PropertyRadarButton
+          parcel={{
+            address:
+              String(selected.properties.SITUS_ADDR || "").trim() ||
+              selected.address,
+            apn: String(
+              selected.properties.PROP_ID ||
+                selected.properties.PARCEL_ID_ALT ||
+                ""
+            ),
+            county: String(selected.properties.COUNTY || ""),
+            countyFips: String(selected.properties.COUNTY_FIPS || ""),
+            state: String(selected.properties.SITUS_STATE || ""),
+            lat: selected.lat,
+            lng: selected.lng,
+          }}
+        />
       </div>
 
       <div className="flex shrink-0 gap-0.5 overflow-x-auto border-b px-2">

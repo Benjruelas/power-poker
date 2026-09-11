@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import { CrmShell } from "@/components/crm/CrmShell";
+import { PropertyRadarButton } from "@/components/parcel/PropertyRadarButton";
 import {
   HeaderActionLink,
   headerBtnDestructiveClass,
@@ -251,6 +252,16 @@ export function CrmLeadDetailPage({ leadId }: { leadId: string }) {
             <MapPinned className="size-4" strokeWidth={2.5} />
             View on map
           </HeaderActionLink>
+          <PropertyRadarButton
+            variant="header"
+            parcel={{
+              address: lead.address,
+              apn: lead.parcelId,
+              county: lead.county,
+              lat: lead.latitude,
+              lng: lead.longitude,
+            }}
+          />
           <Button
             className={headerBtnOutlineClass}
             variant="outline"
