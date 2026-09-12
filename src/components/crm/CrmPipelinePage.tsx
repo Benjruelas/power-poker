@@ -15,6 +15,7 @@ import { AddParcelDialog } from "@/components/crm/AddParcelDialog";
 import {
   headerBtnOutlineClass,
   headerBtnPrimaryClass,
+  headerLabelClass,
 } from "@/components/shared/appHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -186,13 +187,18 @@ export function CrmPipelinePage() {
             variant="outline"
             onClick={onExport}
             disabled={!leads.length}
+            aria-label="Export CSV"
           >
             <Download className="size-4" />
-            CSV
+            <span className={headerLabelClass}>CSV</span>
           </Button>
-          <Button className={headerBtnPrimaryClass} onClick={() => setAddOpen(true)}>
+          <Button
+            className={headerBtnPrimaryClass}
+            onClick={() => setAddOpen(true)}
+            aria-label="Add parcel"
+          >
             <Plus className="size-4" />
-            Add parcel
+            <span className={headerLabelClass}>Add parcel</span>
           </Button>
         </>
       }

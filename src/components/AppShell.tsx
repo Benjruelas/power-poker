@@ -188,20 +188,20 @@ export function AppShell() {
       <SharedListsSync />
       <header className={headerBarClass}>
         <HeaderBrand href="/" />
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 shrink-0 items-center gap-2 sm:gap-3">
           {loading && (
-            <span className="text-sm font-medium text-neutral-400">
+            <span className="hidden text-sm font-medium text-neutral-400 sm:inline">
               Loading data…
             </span>
           )}
           {error && (
-            <span className="max-w-md truncate text-sm font-medium text-red-400">
+            <span className="hidden max-w-[10rem] truncate text-xs font-medium text-red-400 sm:inline sm:max-w-md sm:text-sm">
               {error}
             </span>
           )}
-          <HeaderActionLink href="/crm">
+          <HeaderActionLink href="/crm" aria-label="CRM">
             <BriefcaseBusiness className="size-4" strokeWidth={2.5} />
-            CRM
+            <span className="sm:inline">CRM</span>
             {crmLeadCount != null && crmLeadCount > 0 && (
               <HeaderCountBadge count={crmLeadCount} />
             )}

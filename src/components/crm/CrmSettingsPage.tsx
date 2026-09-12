@@ -1,10 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { GripVertical, Plus, Trash2 } from "lucide-react";
+import { GripVertical, Plus, Save, Trash2 } from "lucide-react";
 
 import { CrmShell } from "@/components/crm/CrmShell";
-import { headerBtnPrimaryClass } from "@/components/shared/appHeader";
+import {
+  headerBtnPrimaryClass,
+  headerLabelClass,
+} from "@/components/shared/appHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -188,8 +191,12 @@ export function CrmSettingsPage() {
           className={headerBtnPrimaryClass}
           onClick={() => void save()}
           disabled={saving || !settings}
+          aria-label={saving ? "Saving settings" : "Save settings"}
         >
-          {saving ? "Saving…" : "Save settings"}
+          <Save className="size-4" strokeWidth={2.5} />
+          <span className={headerLabelClass}>
+            {saving ? "Saving…" : "Save settings"}
+          </span>
         </Button>
       }
     >

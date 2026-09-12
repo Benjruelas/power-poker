@@ -20,6 +20,7 @@ import {
   HeaderActionLink,
   headerBtnDestructiveClass,
   headerBtnOutlineClass,
+  headerLabelClass,
 } from "@/components/shared/appHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -248,9 +249,10 @@ export function CrmLeadDetailPage({ leadId }: { leadId: string }) {
         <>
           <HeaderActionLink
             href={`/?crmParcel=${encodeURIComponent(lead.parcelId)}&lat=${lead.latitude}&lng=${lead.longitude}${lead.lrid ? `&lrid=${encodeURIComponent(lead.lrid)}` : ""}`}
+            aria-label="View on map"
           >
             <MapPinned className="size-4" strokeWidth={2.5} />
-            View on map
+            <span className={headerLabelClass}>View on map</span>
           </HeaderActionLink>
           <PropertyRadarButton
             variant="header"
@@ -266,17 +268,19 @@ export function CrmLeadDetailPage({ leadId }: { leadId: string }) {
             className={headerBtnOutlineClass}
             variant="outline"
             onClick={() => void archive()}
+            aria-label="Archive"
           >
             <Archive className="size-4" />
-            Archive
+            <span className={headerLabelClass}>Archive</span>
           </Button>
           <Button
             className={headerBtnDestructiveClass}
             variant="destructive"
             onClick={() => void remove()}
+            aria-label="Delete"
           >
             <Trash2 className="size-4" />
-            Delete
+            <span className={headerLabelClass}>Delete</span>
           </Button>
         </>
       }

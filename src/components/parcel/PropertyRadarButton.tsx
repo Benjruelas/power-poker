@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { ExternalLink, Loader2 } from "lucide-react";
 
-import { headerBtnOutlineClass } from "@/components/shared/appHeader";
+import { headerBtnOutlineClass, headerLabelClass } from "@/components/shared/appHeader";
 import { Button } from "@/components/ui/button";
 import type { PropertyRadarInput } from "@/lib/propertyRadar";
 import { cn } from "@/lib/utils";
@@ -57,6 +57,7 @@ export function PropertyRadarButton({
           variant="outline"
           className={cn(headerBtnOutlineClass, className)}
           disabled={loading}
+          aria-label="Open in PropertyRadar"
           onClick={() => void openInPropertyRadar()}
         >
           {loading ? (
@@ -64,7 +65,7 @@ export function PropertyRadarButton({
           ) : (
             <ExternalLink className="size-4" strokeWidth={2.5} />
           )}
-          PropertyRadar
+          <span className={headerLabelClass}>PropertyRadar</span>
         </Button>
         {error ? (
           <p className="max-w-[14rem] text-right text-[10px] text-red-300">
