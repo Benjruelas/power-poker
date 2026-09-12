@@ -1,11 +1,18 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react";
 import type { FeatureCollection, Point } from "geojson";
-import { Loader2, MapPin, X } from "lucide-react";
+import { Loader2, MapPin, Search, X } from "lucide-react";
 import type { GeocodeSuggestion } from "@/lib/geocode";
 import { searchSubstations } from "@/lib/searchSubstations";
 import type { SubstationProperties } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 type Props = {
   onSelect: (
@@ -34,6 +41,7 @@ function kindLabel(kind: GeocodeSuggestion["kind"]): string | null {
 
 /**
  * Address / owner / parcel / substation autocomplete.
+ * On mobile, collapses to a search icon until opened so it does not cover map controls.
  */
 export function MapAddressSearch({
   onSelect,
@@ -42,6 +50,7 @@ export function MapAddressSearch({
 }: Props) {
   const listId = useId();
   const wrapRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const proximityRef = useRef(proximity);
   proximityRef.current = proximity;
   const substationsRef = useRef(substations);
@@ -52,6 +61,13 @@ export function MapAddressSearch({
   const [loading, setLoading] = useState(false);
   const [activeIdx, setActiveIdx] = useState(-1);
   const [error, setError] = useState<string | null>(null);
+  /** Mobile-only: full field is shown only while searching. Desktop stays expanded. */
+  const [mobileExpanded, setMobileExpanded] = useState(false);
+
+  const collapseMobile = () => {
+    setMobileExpanded(false);
+    setOpen(false);
+  };
 
   useEffect(() => {
     const q = query.trim();
@@ -141,19 +157,34 @@ export function MapAddressSearch({
     };
   }, [query]);
 
+  const dismiss = () => {
+    setOpen(false);
+    setMobileExpanded(false);
+  };
+
   useEffect(() => {
-    const onDoc = (e: MouseEvent) => {
-      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    // pointerdown + capture: MapLibre often preventDefaults touch so mousedown never fires
+    const onPointerDown = (e: PointerEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) {
+        dismiss();
+      }
     };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () =>
+      document.removeEventListener("pointerdown", onPointerDown, true);
   }, []);
+
+  useEffect(() => {
+    if (!mobileExpanded) return;
+    const id = window.requestAnimationFrame(() => inputRef.current?.focus());
+    return () => window.cancelAnimationFrame(id);
+  }, [mobileExpanded]);
 
   const pick = (s: GeocodeSuggestion) => {
     setQuery(s.label);
-    setOpen(false);
     setSuggestions([]);
     setError(null);
+    dismiss();
     onSelect(s.lng, s.lat, s.label, {
       lrid: s.lrid,
       kind: s.kind,
@@ -162,10 +193,17 @@ export function MapAddressSearch({
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (!open || suggestions.length === 0) {
-      if (e.key === "Escape") setOpen(false);
+    if (e.key === "Escape") {
+      e.preventDefault();
+      if (open) {
+        setOpen(false);
+        return;
+      }
+      dismiss();
+      inputRef.current?.blur();
       return;
     }
+    if (!open || suggestions.length === 0) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
       setActiveIdx((i) => (i + 1) % suggestions.length);
@@ -177,19 +215,43 @@ export function MapAddressSearch({
       // Prefer highlighted row; otherwise first match
       const idx = activeIdx >= 0 ? activeIdx : 0;
       pick(suggestions[idx]!);
-    } else if (e.key === "Escape") {
-      setOpen(false);
     }
   };
 
   return (
-    <div ref={wrapRef} className="pointer-events-auto relative w-full max-w-sm">
-      <div className="relative flex items-center rounded-md border border-slate-200 bg-white/95 shadow-md backdrop-blur-sm">
+    <div
+      ref={wrapRef}
+      className={cn(
+        "pointer-events-auto relative",
+        mobileExpanded ? "w-full max-w-sm" : "w-fit md:w-full md:max-w-sm"
+      )}
+    >
+      <button
+        type="button"
+        aria-label="Search address, site, owner, or parcel"
+        className={cn(
+          "flex size-11 items-center justify-center rounded-md border border-slate-200 bg-white/95 text-slate-700 shadow-md backdrop-blur-sm touch-manipulation",
+          "hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-sky-500",
+          "md:hidden",
+          mobileExpanded && "hidden"
+        )}
+        onClick={() => setMobileExpanded(true)}
+      >
+        <Search className="size-5" strokeWidth={2.25} aria-hidden />
+      </button>
+
+      <div
+        className={cn(
+          "relative flex items-center rounded-md border border-slate-200 bg-white/95 shadow-md backdrop-blur-sm",
+          mobileExpanded ? "flex" : "hidden md:flex"
+        )}
+      >
         <MapPin
           className="pointer-events-none absolute left-2.5 size-3.5 text-slate-400"
           aria-hidden
         />
         <input
+          ref={inputRef}
           type="text"
           value={query}
           onChange={(e) => {
@@ -197,6 +259,13 @@ export function MapAddressSearch({
             setOpen(true);
           }}
           onFocus={() => setOpen(true)}
+          onBlur={() => {
+            // Blur fires when tapping the map; defer so suggestion taps can commit first.
+            window.setTimeout(() => {
+              if (wrapRef.current?.contains(document.activeElement)) return;
+              dismiss();
+            }, 120);
+          }}
           onKeyDown={onKeyDown}
           placeholder="Address, site, owner, or parcel #…"
           aria-label="Search address, substation, owner, or parcel number"
@@ -212,16 +281,16 @@ export function MapAddressSearch({
             aria-hidden
           />
         )}
-        {query && !loading && (
+        {!loading && (query || mobileExpanded) && (
           <button
             type="button"
-            aria-label="Clear search"
-            className="absolute right-1 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            aria-label={query ? "Clear search" : "Close search"}
+            className="absolute right-1 rounded p-1 text-slate-400 touch-manipulation hover:bg-slate-100 hover:text-slate-700"
             onClick={() => {
               setQuery("");
               setSuggestions([]);
-              setOpen(false);
               setError(null);
+              dismiss();
             }}
           >
             <X className="size-3.5" />
@@ -250,6 +319,7 @@ export function MapAddressSearch({
                       ? "bg-slate-100 text-slate-900"
                       : "text-slate-700 hover:bg-slate-50",
                   ].join(" ")}
+                  onPointerDown={(e) => e.preventDefault()}
                   onMouseDown={(e) => e.preventDefault()}
                   onMouseEnter={() => setActiveIdx(i)}
                   onClick={() => pick(s)}
