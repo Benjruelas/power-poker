@@ -1,7 +1,6 @@
 import { ImageResponse } from "next/og";
 
 import {
-  formatAcres,
   formatAddressLines,
   mapboxSatelliteUrl,
 } from "@/lib/share/parcelShare";
@@ -12,20 +11,29 @@ export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 export const runtime = "nodejs";
 
+/** Close-up of parcel center for SMS / Messages link previews. */
+const CLOSE_UP_ZOOM = 19;
+
 type Props = { params: Promise<{ token: string }> };
 
 export default async function Image({ params }: Props) {
   const { token } = await params;
   const preview = await resolveParcelSharePreview(token);
 
+  const ownerName = (preview?.ownerName || "").trim();
   const addressLines = formatAddressLines(preview?.address || "");
-  const parcelId = preview?.parcelId ? `Parcel ${preview.parcelId}` : "";
-  const acres = formatAcres(preview?.acres ?? null);
-  const metaLine = [parcelId, acres].filter(Boolean).join("  ·  ");
+  const fallbackTitle =
+    addressLines[0] || preview?.address?.trim() || "Shared parcel";
 
   const sat =
     preview && Number.isFinite(preview.lat) && Number.isFinite(preview.lng)
-      ? mapboxSatelliteUrl(preview.lat, preview.lng, size.width, size.height, 17)
+      ? mapboxSatelliteUrl(
+          preview.lat,
+          preview.lng,
+          size.width,
+          size.height,
+          CLOSE_UP_ZOOM
+        )
       : null;
 
   return new ImageResponse(
@@ -42,7 +50,6 @@ export default async function Image({ params }: Props) {
         }}
       >
         {sat ? (
-          // eslint-disable-next-line @next/next/no-img-element
           <img
             src={sat}
             alt=""
@@ -58,13 +65,13 @@ export default async function Image({ params }: Props) {
           />
         ) : null}
 
-        {/* Scrim between satellite image and text for readability */}
+        {/* Bottom scrim so owner + address stay readable over the close-up */}
         <div
           style={{
             position: "absolute",
             inset: 0,
             background:
-              "linear-gradient(180deg, rgba(0,0,0,0.28) 0%, rgba(0,0,0,0.55) 45%, rgba(0,0,0,0.78) 100%)",
+              "linear-gradient(180deg, rgba(0,0,0,0.08) 0%, rgba(0,0,0,0.18) 40%, rgba(0,0,0,0.72) 78%, rgba(0,0,0,0.88) 100%)",
             display: "flex",
           }}
         />
@@ -74,27 +81,29 @@ export default async function Image({ params }: Props) {
             position: "relative",
             display: "flex",
             flexDirection: "column",
-            justifyContent: "center",
-            paddingLeft: 72,
-            paddingRight: 72,
+            justifyContent: "flex-end",
+            paddingLeft: 64,
+            paddingRight: 64,
+            paddingBottom: 56,
             width: "100%",
             height: "100%",
             color: "#ffffff",
           }}
         >
-          <div
-            style={{
-              display: "flex",
-              fontSize: 28,
-              fontWeight: 600,
-              letterSpacing: 1,
-              color: "#6ee7b7",
-              marginBottom: 18,
-              textTransform: "uppercase",
-            }}
-          >
-            Power Poker
-          </div>
+          {ownerName ? (
+            <div
+              style={{
+                display: "flex",
+                fontSize: 52,
+                fontWeight: 700,
+                lineHeight: 1.15,
+                marginBottom: addressLines.length > 0 ? 12 : 0,
+                maxWidth: 1070,
+              }}
+            >
+              {ownerName}
+            </div>
+          ) : null}
 
           {addressLines.length > 0 ? (
             addressLines.map((line, i) => (
@@ -102,60 +111,30 @@ export default async function Image({ params }: Props) {
                 key={`${i}-${line}`}
                 style={{
                   display: "flex",
-                  fontSize: i === 0 ? 64 : 40,
-                  fontWeight: i === 0 ? 700 : 500,
-                  lineHeight: 1.15,
-                  marginBottom: i === addressLines.length - 1 ? 22 : 8,
-                  maxWidth: 1050,
+                  fontSize: ownerName ? (i === 0 ? 36 : 30) : i === 0 ? 52 : 36,
+                  fontWeight: ownerName ? 500 : i === 0 ? 700 : 500,
+                  lineHeight: 1.2,
+                  marginBottom: i === addressLines.length - 1 ? 0 : 6,
+                  maxWidth: 1070,
+                  color: ownerName ? "rgba(255,255,255,0.9)" : "#ffffff",
                 }}
               >
                 {line}
               </div>
             ))
-          ) : (
+          ) : ownerName ? null : (
             <div
               style={{
                 display: "flex",
-                fontSize: 56,
+                fontSize: 52,
                 fontWeight: 700,
-                marginBottom: 22,
+                lineHeight: 1.15,
+                maxWidth: 1070,
               }}
             >
-              Shared parcel
+              {fallbackTitle}
             </div>
           )}
-
-          {metaLine ? (
-            <div
-              style={{
-                display: "flex",
-                fontSize: 36,
-                fontWeight: 500,
-                color: "rgba(255,255,255,0.92)",
-                marginBottom: 10,
-              }}
-            >
-              {metaLine}
-            </div>
-          ) : null}
-
-          {preview?.county || preview?.ownerName ? (
-            <div
-              style={{
-                display: "flex",
-                fontSize: 28,
-                fontWeight: 400,
-                color: "rgba(255,255,255,0.75)",
-              }}
-            >
-              {[
-                preview.county ? `${preview.county} County` : "",
-                preview.ownerName || "",
-              ]
-                .filter(Boolean)
-                .join("  ·  ")}
-            </div>
-          ) : null}
         </div>
       </div>
     ),

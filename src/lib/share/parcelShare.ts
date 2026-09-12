@@ -116,6 +116,8 @@ export function formatAddressLines(value: string): string[] {
 }
 
 export function previewTitle(preview: ParcelSharePreview): string {
+  const owner = preview.ownerName?.trim();
+  if (owner) return owner;
   const addr = preview.address?.trim();
   if (addr) return addr;
   if (preview.parcelId) return `Parcel ${preview.parcelId}`;
@@ -124,11 +126,18 @@ export function previewTitle(preview: ParcelSharePreview): string {
 
 export function previewDescription(preview: ParcelSharePreview): string {
   const parts: string[] = [];
+  const addr = preview.address?.trim();
+  const owner = preview.ownerName?.trim();
+  // When title is the owner, put the address in the description (and vice versa).
+  if (owner && addr) parts.push(addr);
+  else if (!owner && addr) {
+    /* title already uses address */
+  }
   if (preview.parcelId) parts.push(`Parcel ${preview.parcelId}`);
   const acres = formatAcres(preview.acres);
   if (acres) parts.push(acres);
   if (preview.county) parts.push(`${preview.county} County`);
-  if (preview.ownerName) parts.push(preview.ownerName);
+  if (!owner && preview.ownerName) parts.push(preview.ownerName);
   return parts.join(" · ") || "Shared on Power Poker";
 }
 
@@ -235,14 +244,37 @@ export function mapboxSatelliteUrl(
   height = 630,
   zoom = 17
 ): string | null {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+
   const token =
     process.env.MAPBOX_ACCESS_TOKEN ||
     process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN ||
     "";
-  if (!token || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (token) {
+    return (
+      `https://api.mapbox.com/styles/v1/mapbox/satellite-v9/static/` +
+      `${lng},${lat},${zoom},0/${width}x${height}@2x?access_token=${encodeURIComponent(token)}`
+    );
+  }
+
+  // Esri World Imagery export — no token required; used when Mapbox isn't configured
+  // (OG image generation / local preview). Approx web-mercator meters-per-pixel at zoom.
+  const mpp = (156543.03392 * Math.cos((lat * Math.PI) / 180)) / Math.pow(2, zoom);
+  const halfW = (width * mpp) / 2;
+  const halfH = (height * mpp) / 2;
+  // Rough degrees from meters at this latitude (WGS84)
+  const metersPerDegLat = 111320;
+  const metersPerDegLng = Math.max(
+    1,
+    111320 * Math.cos((lat * Math.PI) / 180)
+  );
+  const dLat = halfH / metersPerDegLat;
+  const dLng = halfW / metersPerDegLng;
+  const bbox = `${lng - dLng},${lat - dLat},${lng + dLng},${lat + dLat}`;
   return (
-    `https://api.mapbox.com/styles/v1/mapbox/satellite-v9/static/` +
-    `${lng},${lat},${zoom},0/${width}x${height}@2x?access_token=${encodeURIComponent(token)}`
+    `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export` +
+    `?bbox=${encodeURIComponent(bbox)}&bboxSR=4326&imageSR=4326` +
+    `&size=${width},${height}&format=jpg&f=image`
   );
 }
 
