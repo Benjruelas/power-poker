@@ -53,8 +53,8 @@ export default async function ParcelSharePage({ params }: Props) {
   const lines = formatAddressLines(preview.address);
   const acres = formatAcres(preview.acres);
   const ownerName = (preview.ownerName || "").trim();
-  // Match OG close-up (zoom 18) so the landing hero matches Messages previews
-  const sat = mapboxSatelliteUrl(preview.lat, preview.lng, 1200, 630, 18);
+  // Match OG close-up (zoom 19) so the landing hero matches Messages previews
+  const sat = mapboxSatelliteUrl(preview.lat, preview.lng, 1200, 630, 19);
   const mapHref = parcelMapHref(preview);
 
   return (

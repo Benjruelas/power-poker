@@ -12,7 +12,7 @@ export const contentType = "image/png";
 export const runtime = "nodejs";
 
 /** Close-up of parcel center for SMS / Messages link previews. */
-const CLOSE_UP_ZOOM = 18;
+const CLOSE_UP_ZOOM = 19;
 
 type Props = { params: Promise<{ token: string }> };
 
