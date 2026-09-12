@@ -52,7 +52,9 @@ export default async function ParcelSharePage({ params }: Props) {
 
   const lines = formatAddressLines(preview.address);
   const acres = formatAcres(preview.acres);
-  const sat = mapboxSatelliteUrl(preview.lat, preview.lng, 1200, 630, 16);
+  const ownerName = (preview.ownerName || "").trim();
+  // Match OG close-up (zoom 18) so the landing hero matches Messages previews
+  const sat = mapboxSatelliteUrl(preview.lat, preview.lng, 1200, 630, 18);
   const mapHref = parcelMapHref(preview);
 
   return (
@@ -72,19 +74,30 @@ export default async function ParcelSharePage({ params }: Props) {
           }
         >
           <div
-            className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/50 to-black/25"
+            className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/45 to-black/10"
             aria-hidden
           />
           <div className="absolute inset-0 flex flex-col justify-end p-6">
-            <p className="text-xs font-semibold uppercase tracking-wider text-emerald-300">
-              Power Poker
-            </p>
-            <h1 className="mt-2 text-2xl font-bold leading-tight">
-              {lines[0] || preview.address || "Shared parcel"}
-            </h1>
-            {lines[1] ? (
-              <p className="mt-1 text-base text-white/85">{lines[1]}</p>
-            ) : null}
+            {ownerName ? (
+              <>
+                <h1 className="text-2xl font-bold leading-tight">{ownerName}</h1>
+                <p className="mt-1 text-base text-white/90">
+                  {lines[0] || preview.address || "Shared parcel"}
+                </p>
+                {lines[1] ? (
+                  <p className="mt-0.5 text-sm text-white/80">{lines[1]}</p>
+                ) : null}
+              </>
+            ) : (
+              <>
+                <h1 className="text-2xl font-bold leading-tight">
+                  {lines[0] || preview.address || "Shared parcel"}
+                </h1>
+                {lines[1] ? (
+                  <p className="mt-1 text-base text-white/85">{lines[1]}</p>
+                ) : null}
+              </>
+            )}
           </div>
         </div>
 

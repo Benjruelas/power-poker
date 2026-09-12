@@ -116,6 +116,8 @@ export function formatAddressLines(value: string): string[] {
 }
 
 export function previewTitle(preview: ParcelSharePreview): string {
+  const owner = preview.ownerName?.trim();
+  if (owner) return owner;
   const addr = preview.address?.trim();
   if (addr) return addr;
   if (preview.parcelId) return `Parcel ${preview.parcelId}`;
@@ -124,11 +126,18 @@ export function previewTitle(preview: ParcelSharePreview): string {
 
 export function previewDescription(preview: ParcelSharePreview): string {
   const parts: string[] = [];
+  const addr = preview.address?.trim();
+  const owner = preview.ownerName?.trim();
+  // When title is the owner, put the address in the description (and vice versa).
+  if (owner && addr) parts.push(addr);
+  else if (!owner && addr) {
+    /* title already uses address */
+  }
   if (preview.parcelId) parts.push(`Parcel ${preview.parcelId}`);
   const acres = formatAcres(preview.acres);
   if (acres) parts.push(acres);
   if (preview.county) parts.push(`${preview.county} County`);
-  if (preview.ownerName) parts.push(preview.ownerName);
+  if (!owner && preview.ownerName) parts.push(preview.ownerName);
   return parts.join(" · ") || "Shared on Power Poker";
 }
 
