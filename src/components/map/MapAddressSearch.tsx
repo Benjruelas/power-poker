@@ -157,15 +157,21 @@ export function MapAddressSearch({
     };
   }, [query]);
 
+  const dismiss = () => {
+    setOpen(false);
+    setMobileExpanded(false);
+  };
+
   useEffect(() => {
-    const onDoc = (e: MouseEvent) => {
+    // pointerdown + capture: MapLibre often preventDefaults touch so mousedown never fires
+    const onPointerDown = (e: PointerEvent) => {
       if (!wrapRef.current?.contains(e.target as Node)) {
-        setOpen(false);
-        setMobileExpanded(false);
+        dismiss();
       }
     };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () =>
+      document.removeEventListener("pointerdown", onPointerDown, true);
   }, []);
 
   useEffect(() => {
@@ -176,10 +182,9 @@ export function MapAddressSearch({
 
   const pick = (s: GeocodeSuggestion) => {
     setQuery(s.label);
-    setOpen(false);
     setSuggestions([]);
     setError(null);
-    setMobileExpanded(false);
+    dismiss();
     onSelect(s.lng, s.lat, s.label, {
       lrid: s.lrid,
       kind: s.kind,
@@ -194,7 +199,7 @@ export function MapAddressSearch({
         setOpen(false);
         return;
       }
-      collapseMobile();
+      dismiss();
       inputRef.current?.blur();
       return;
     }
@@ -254,6 +259,13 @@ export function MapAddressSearch({
             setOpen(true);
           }}
           onFocus={() => setOpen(true)}
+          onBlur={() => {
+            // Blur fires when tapping the map; defer so suggestion taps can commit first.
+            window.setTimeout(() => {
+              if (wrapRef.current?.contains(document.activeElement)) return;
+              dismiss();
+            }, 120);
+          }}
           onKeyDown={onKeyDown}
           placeholder="Address, site, owner, or parcel #…"
           aria-label="Search address, substation, owner, or parcel number"
@@ -277,9 +289,8 @@ export function MapAddressSearch({
             onClick={() => {
               setQuery("");
               setSuggestions([]);
-              setOpen(false);
               setError(null);
-              collapseMobile();
+              dismiss();
             }}
           >
             <X className="size-3.5" />
@@ -308,6 +319,7 @@ export function MapAddressSearch({
                       ? "bg-slate-100 text-slate-900"
                       : "text-slate-700 hover:bg-slate-50",
                   ].join(" ")}
+                  onPointerDown={(e) => e.preventDefault()}
                   onMouseDown={(e) => e.preventDefault()}
                   onMouseEnter={() => setActiveIdx(i)}
                   onClick={() => pick(s)}
