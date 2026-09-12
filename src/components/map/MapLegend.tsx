@@ -25,12 +25,12 @@ export function MapLegend({
   }, []);
 
   return (
-    <div className="pointer-events-auto absolute bottom-[calc(5.75rem+env(safe-area-inset-bottom,0px))] left-3 z-30 max-w-[240px] rounded-lg border border-slate-200 bg-white text-xs text-slate-900 shadow-lg md:bottom-3 md:z-50">
+    <div className="pointer-events-auto absolute bottom-[calc(var(--mobile-tab-bar-offset)+0.5rem)] left-3 z-30 max-w-[240px] rounded-lg border border-slate-200 bg-white text-xs text-slate-900 shadow-lg md:bottom-3 md:z-50">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "flex w-full items-center justify-between gap-2 px-3 py-2 text-left font-semibold",
+          "flex min-h-11 w-full items-center justify-between gap-2 px-3 py-2.5 text-left text-sm font-semibold touch-manipulation md:min-h-0 md:py-2 md:text-xs",
           open && "border-b border-slate-100"
         )}
         aria-expanded={open}

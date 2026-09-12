@@ -2027,8 +2027,8 @@ export function BessMap({
           </div>
         )}
       </div>
-      {/* Under MapLibre NavigationControl (top-right, ~two 29px zoom buttons) */}
-      <div className="pointer-events-auto absolute right-2.5 top-[80px] z-50 flex flex-col gap-0.5">
+      {/* Under MapLibre NavigationControl (top-right zoom buttons) */}
+      <div className="pointer-events-auto absolute right-2 top-[96px] z-50 flex flex-col gap-1 md:right-2.5 md:top-[80px] md:gap-0.5">
         <button
           type="button"
           aria-label="Satellite basemap"
@@ -2038,14 +2038,14 @@ export function BessMap({
           }
           onClick={() => setFilters({ satellite: !filters.satellite })}
           className={[
-            "flex h-[29px] w-[29px] items-center justify-center rounded border shadow-sm",
+            "flex size-10 items-center justify-center rounded border shadow-sm touch-manipulation md:size-[29px]",
             "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-sky-500",
             filters.satellite
               ? "border-sky-800 bg-sky-700 text-white hover:bg-sky-800"
               : "border-slate-300 bg-white text-slate-900 hover:bg-slate-100",
           ].join(" ")}
         >
-          <Satellite className="size-3.5" strokeWidth={2.25} aria-hidden />
+          <Satellite className="size-4 md:size-3.5" strokeWidth={2.25} aria-hidden />
         </button>
         <button
           type="button"
@@ -2058,14 +2058,14 @@ export function BessMap({
             setFilters({ showFloodZones: !filters.showFloodZones })
           }
           className={[
-            "flex h-[29px] w-[29px] items-center justify-center rounded border shadow-sm",
+            "flex size-10 items-center justify-center rounded border shadow-sm touch-manipulation md:size-[29px]",
             "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-sky-500",
             filters.showFloodZones
               ? "border-sky-800 bg-sky-700 text-white hover:bg-sky-800"
               : "border-slate-300 bg-white text-slate-900 hover:bg-slate-100",
           ].join(" ")}
         >
-          <Droplets className="size-3.5" strokeWidth={2.25} aria-hidden />
+          <Droplets className="size-4 md:size-3.5" strokeWidth={2.25} aria-hidden />
         </button>
       </div>
       {status && (

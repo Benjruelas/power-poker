@@ -49,6 +49,11 @@
 }
 
 :root {
+  /* Docked mobile tab bar: label row (~2.75rem) + safe-area home indicator */
+  --mobile-tab-bar-content: 3.5rem;
+  --mobile-tab-bar-offset: calc(
+    var(--mobile-tab-bar-content) + env(safe-area-inset-bottom, 0px)
+  );
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -121,11 +126,18 @@
   * {
     @apply border-border outline-ring/50;
   }
-  body {
-    @apply bg-background text-foreground;
-  }
   html {
     @apply font-sans;
+    /* iOS PWA: fill the screen including notches; avoid rubber-band under chrome */
+    height: 100%;
+    height: -webkit-fill-available;
+  }
+  body {
+    @apply bg-background text-foreground;
+    min-height: 100%;
+    min-height: -webkit-fill-available;
+    overscroll-behavior: none;
+    -webkit-tap-highlight-color: transparent;
   }
 }
 
@@ -141,6 +153,22 @@
 
 .maplibregl-ctrl-attrib {
   font-size: 10px;
+}
+
+/* Lift MapLibre chrome above the docked iOS tab bar */
+@media (max-width: 767px) {
+  .maplibregl-ctrl-bottom-left,
+  .maplibregl-ctrl-bottom-right {
+    bottom: var(--mobile-tab-bar-offset);
+  }
+  .maplibregl-ctrl-group button {
+    width: 40px !important;
+    height: 40px !important;
+  }
+  .maplibregl-ctrl-top-right {
+    top: 8px;
+    right: 8px;
+  }
 }
 
 .maplibregl-map {

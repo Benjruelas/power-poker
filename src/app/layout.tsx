@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
@@ -13,10 +13,32 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#0a0a0a",
+  colorScheme: "light",
+};
+
 export const metadata: Metadata = {
   title: "Power Poker · US ISOs",
   description:
     "Power Poker — map US ISO substations, transmission lines, and interconnection queues (ERCOT, SPP, MISO, PJM, CAISO, NYISO, ISO-NE) to screen battery storage development sites.",
+  applicationName: "Power Poker",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    title: "Power Poker",
+    // Extends content under the status bar; header uses safe-area-inset-top.
+    statusBarStyle: "black-translucent",
+  },
+  formatDetection: {
+    telephone: false,
+  },
+  other: {
+    "mobile-web-app-capable": "yes",
+  },
 };
 
 export default function RootLayout({
@@ -29,7 +51,7 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full font-sans">
+      <body className="min-h-full font-sans overscroll-none">
         <TooltipProvider>{children}</TooltipProvider>
       </body>
     </html>

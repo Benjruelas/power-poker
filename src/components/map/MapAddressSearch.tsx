@@ -204,7 +204,7 @@ export function MapAddressSearch({
           aria-controls={listId}
           aria-expanded={open && suggestions.length > 0}
           autoComplete="off"
-          className="min-w-0 flex-1 bg-transparent py-2 pl-8 pr-8 text-sm text-slate-900 placeholder:text-slate-400 outline-none"
+          className="min-h-11 min-w-0 flex-1 bg-transparent py-2.5 pl-8 pr-8 text-base text-slate-900 placeholder:text-slate-400 outline-none md:min-h-0 md:py-2 md:text-sm"
         />
         {loading && (
           <Loader2
