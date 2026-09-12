@@ -79,7 +79,7 @@ export function MobilePanelSheet({
         // !important beats Sheet defaults: data-[side=bottom]:bottom-0 and :h-auto.
         className="inset-x-0 !bottom-[var(--mobile-tab-bar-offset)] !h-[calc(100dvh-var(--mobile-tab-bar-offset))] max-h-[calc(100dvh-var(--mobile-tab-bar-offset))] w-full gap-0 overflow-hidden rounded-t-2xl border-x-0 border-b-0 border-t p-0 data-[side=bottom]:!bottom-[var(--mobile-tab-bar-offset)] data-[side=bottom]:!h-[calc(100dvh-var(--mobile-tab-bar-offset))] sm:max-w-none"
       >
-        <div className="flex h-full min-h-0 flex-col bg-background">
+        <div className="flex h-full min-h-0 flex-col bg-background pt-[env(safe-area-inset-top,0px)]">
           <div
             className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-muted-foreground/30"
             aria-hidden

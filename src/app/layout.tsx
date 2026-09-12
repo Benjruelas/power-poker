@@ -36,8 +36,10 @@ export const metadata: Metadata = {
   formatDetection: {
     telephone: false,
   },
+  // Next may emit only mobile-web-app-capable; keep the Apple-prefixed tag for
+  // older iOS Safari “Add to Home Screen” detection.
   other: {
-    "mobile-web-app-capable": "yes",
+    "apple-mobile-web-app-capable": "yes",
   },
 };
 
