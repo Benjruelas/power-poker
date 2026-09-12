@@ -74,11 +74,12 @@ export function MobilePanelSheet({
       <SheetContent
         side="bottom"
         showCloseButton
-        // Leave room for the floating action bar so it stays tappable above the sheet.
+        // Leave room for the docked tab bar so it stays tappable above the sheet.
+        // Height uses --mobile-tab-bar-offset (content + safe-area) from globals.css.
         // !important beats Sheet defaults: data-[side=bottom]:bottom-0 and :h-auto.
-        className="inset-x-0 !bottom-[calc(5.5rem+env(safe-area-inset-bottom,0px))] !h-[calc(100dvh-5.5rem-env(safe-area-inset-bottom,0px))] max-h-[calc(100dvh-5.5rem-env(safe-area-inset-bottom,0px))] w-full gap-0 overflow-hidden rounded-t-2xl border-x-0 border-b-0 border-t p-0 data-[side=bottom]:!bottom-[calc(5.5rem+env(safe-area-inset-bottom,0px))] data-[side=bottom]:!h-[calc(100dvh-5.5rem-env(safe-area-inset-bottom,0px))] sm:max-w-none"
+        className="inset-x-0 !bottom-[var(--mobile-tab-bar-offset)] !h-[calc(100dvh-var(--mobile-tab-bar-offset))] max-h-[calc(100dvh-var(--mobile-tab-bar-offset))] w-full gap-0 overflow-hidden rounded-t-2xl border-x-0 border-b-0 border-t p-0 data-[side=bottom]:!bottom-[var(--mobile-tab-bar-offset)] data-[side=bottom]:!h-[calc(100dvh-var(--mobile-tab-bar-offset))] sm:max-w-none"
       >
-        <div className="flex h-full min-h-0 flex-col bg-background">
+        <div className="flex h-full min-h-0 flex-col bg-background pt-[env(safe-area-inset-top,0px)]">
           <div
             className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-muted-foreground/30"
             aria-hidden

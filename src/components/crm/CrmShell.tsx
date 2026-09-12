@@ -28,7 +28,7 @@ export function CrmShell({
   const onPipeline = pathname === "/crm";
 
   return (
-    <div className="flex h-dvh flex-col bg-background text-foreground">
+    <div className="flex h-dvh max-h-[100dvh] flex-col overflow-hidden bg-background text-foreground">
       <header className={headerBarClass}>
         <div className="flex min-w-0 flex-1 items-center gap-4">
           <HeaderBrand subtitle="Parcel CRM" href="/" />

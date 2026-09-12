@@ -24,8 +24,8 @@ const ITEMS: {
 ];
 
 /**
- * Knockscout-style floating action bar: map stays full-bleed; each item opens
- * its panel as a full-screen sheet.
+ * iOS-style bottom tab bar: full-bleed, rounded top, safe-area padding inside
+ * so the home indicator sits on the bar chrome (not on the labels).
  */
 export function MobileActionBar() {
   const mobilePanel = useAppStore((s) => s.mobilePanel);
@@ -35,9 +35,14 @@ export function MobileActionBar() {
   return (
     <nav
       aria-label="Panels"
-      className="pointer-events-auto rounded-2xl border border-border/80 bg-background/95 shadow-lg shadow-black/10 backdrop-blur-md supports-backdrop-filter:bg-background/85"
+      className="pointer-events-auto rounded-t-2xl border-t border-border/80 bg-background/95 shadow-[0_-8px_24px_rgba(0,0,0,0.08)] backdrop-blur-md supports-backdrop-filter:bg-background/90"
     >
-      <ul className="grid grid-cols-5 gap-0.5 px-1 py-1.5">
+      <ul
+        className="grid grid-cols-5 gap-0.5 px-1 pt-1.5"
+        style={{
+          paddingBottom: "max(0.5rem, env(safe-area-inset-bottom, 0px))",
+        }}
+      >
         {ITEMS.map(({ id, label, icon: Icon }) => {
           const active = mobilePanel === id;
           return (
@@ -51,14 +56,14 @@ export function MobileActionBar() {
                   else openMobilePanel(id);
                 }}
                 className={cn(
-                  "flex w-full flex-col items-center gap-0.5 rounded-xl px-1 py-1.5 text-[10px] font-medium transition-colors",
+                  "flex min-h-11 w-full flex-col items-center justify-center gap-1 rounded-xl px-1 py-1.5 text-[11px] font-semibold leading-none tracking-tight transition-colors touch-manipulation",
                   active
                     ? "bg-emerald-600/15 text-emerald-700"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    : "text-muted-foreground active:bg-muted hover:bg-muted hover:text-foreground"
                 )}
               >
-                <Icon className="size-5 stroke-[1.75]" />
-                <span className="leading-none">{label}</span>
+                <Icon className="size-5 shrink-0 stroke-[1.75]" aria-hidden />
+                <span>{label}</span>
               </button>
             </li>
           );

@@ -184,7 +184,7 @@ export function AppShell() {
   }, [projects, filters]);
 
   return (
-    <div className="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
+    <div className="flex h-dvh max-h-[100dvh] flex-col overflow-hidden bg-background text-foreground supports-[height:100dvh]:h-dvh">
       <SharedListsSync />
       <header className={headerBarClass}>
         <HeaderBrand href="/" />
@@ -339,8 +339,8 @@ export function AppShell() {
         </aside>
       </div>
 
-      {/* Action bar sits above sheets (z-60) so users can switch/toggle panels */}
-      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-[60] px-3 pt-2 md:hidden pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      {/* Docked tab bar above sheets (z-60) so users can switch/toggle panels */}
+      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-[60] md:hidden">
         <MobileActionBar />
       </div>
 
