@@ -22,8 +22,14 @@ type GeoJsonFeature = {
   };
 };
 
-async function parseFeatures(res: Response): Promise<GeoJsonFeature[]> {
-  if (!res.ok) return [];
+async function parseFeatures(
+  res: Response,
+  upstreamStatuses?: number[]
+): Promise<GeoJsonFeature[]> {
+  if (!res.ok) {
+    upstreamStatuses?.push(res.status);
+    return [];
+  }
   let data: {
     error?: unknown;
     features?: GeoJsonFeature[];
@@ -40,7 +46,8 @@ async function parseFeatures(res: Response): Promise<GeoJsonFeature[]> {
 async function fetchWmsFeaturesByPoint(
   lat: number,
   lng: number,
-  apiKey: string
+  apiKey: string,
+  upstreamStatuses?: number[]
 ): Promise<GeoJsonFeature[]> {
   const minLat = lat - BBOX_DELTA;
   const maxLat = lat + BBOX_DELTA;
@@ -65,7 +72,8 @@ async function fetchWmsFeaturesByPoint(
   url4326.searchParams.set("feature_count", "10");
 
   const feats4326 = await parseFeatures(
-    await landRecordsFetch(url4326.toString(), { apiKey })
+    await landRecordsFetch(url4326.toString(), { apiKey }),
+    upstreamStatuses
   );
   if (feats4326.length) return feats4326;
 
@@ -86,13 +94,15 @@ async function fetchWmsFeaturesByPoint(
   url84.searchParams.set("feature_count", "10");
 
   return parseFeatures(
-    await landRecordsFetch(url84.toString(), { apiKey })
+    await landRecordsFetch(url84.toString(), { apiKey }),
+    upstreamStatuses
   );
 }
 
 async function fetchWfsByLrid(
   lrid: string,
-  apiKey: string
+  apiKey: string,
+  upstreamStatuses?: number[]
 ): Promise<Record<string, unknown> | null> {
   const url = new URL(WFS_BASE);
   url.searchParams.set("service", "WFS");
@@ -104,7 +114,8 @@ async function fetchWfsByLrid(
   url.searchParams.set("count", "1");
 
   const features = await parseFeatures(
-    await landRecordsFetch(url.toString(), { apiKey })
+    await landRecordsFetch(url.toString(), { apiKey }),
+    upstreamStatuses
   );
   return features[0]?.properties ?? null;
 }
@@ -114,7 +125,8 @@ async function fetchWfsByCentroid(
   lat: number,
   lng: number,
   apiKey: string,
-  lrid?: string
+  lrid?: string,
+  upstreamStatuses?: number[]
 ): Promise<Record<string, unknown> | null> {
   const d = CENTROID_DELTA;
   const url = new URL(WFS_BASE);
@@ -130,7 +142,8 @@ async function fetchWfsByCentroid(
   url.searchParams.set("count", "8");
 
   const features = await parseFeatures(
-    await landRecordsFetch(url.toString(), { apiKey })
+    await landRecordsFetch(url.toString(), { apiKey }),
+    upstreamStatuses
   );
   if (!features.length) return null;
 
@@ -186,15 +199,16 @@ export async function GET(request: Request) {
   try {
     let properties: Record<string, unknown> | null = null;
     let source = "wms";
+    const upstreamStatuses: number[] = [];
 
     if (safeLrid) {
-      properties = await fetchWfsByLrid(safeLrid, apiKey);
+      properties = await fetchWfsByLrid(safeLrid, apiKey, upstreamStatuses);
       if (properties) source = "wfs";
     }
 
     if (!properties) {
       const wmsFeature = pickParcelFeature(
-        await fetchWmsFeaturesByPoint(lat, lng, apiKey),
+        await fetchWmsFeaturesByPoint(lat, lng, apiKey, upstreamStatuses),
         safeLrid || null
       );
       properties = wmsFeature?.properties || null;
@@ -210,7 +224,8 @@ export async function GET(request: Request) {
         lat,
         lng,
         apiKey,
-        safeLrid || undefined
+        safeLrid || undefined,
+        upstreamStatuses
       );
       if (properties) source = "wfs-centroid";
     }
@@ -235,7 +250,27 @@ export async function GET(request: Request) {
     }
 
     if (!properties) {
-      // Expected when WFS/WMS lag vector tiles — 200 keeps the browser console quiet.
+      // A key/quota rejection must not masquerade as "no parcel here" —
+      // that is how a provider outage silently blanks owner names app-wide.
+      const rejectedStatus = upstreamStatuses.find(
+        (s) => s === 401 || s === 402 || s === 403 || s === 429
+      );
+      if (rejectedStatus) {
+        console.error(
+          "parcel lookup rejected upstream:",
+          upstreamStatuses.join(",")
+        );
+        return Response.json(
+          {
+            error: "parcel provider rejected the request",
+            upstreamStatus: rejectedStatus,
+            hint: "Check /api/parcel/health for LandRecords key/quota diagnostics",
+          },
+          { status: 502, headers: { "Cache-Control": "no-store" } }
+        );
+      }
+
+      // Expected when WFS/WMS lag vector tiles — keeps the browser console quiet.
       return Response.json(
         { error: "parcel not found" },
         {
