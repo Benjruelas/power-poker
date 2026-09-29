@@ -120,7 +120,11 @@ async function fetchWfsByLrid(
   return features[0]?.properties ?? null;
 }
 
-/** WFS centroid window — works where geometry queries / WMS miss. */
+/**
+ * WFS bbox window around the click — works where WMS misses.
+ * LandRecords now requires an indexed property or a spatial predicate
+ * (BBOX/INTERSECTS/DWITHIN); `centroidx/centroidy BETWEEN` is rejected.
+ */
 async function fetchWfsByCentroid(
   lat: number,
   lng: number,
@@ -136,7 +140,7 @@ async function fetchWfsByCentroid(
   url.searchParams.set("typeNames", "pro:parcel_us");
   url.searchParams.set(
     "cql_filter",
-    `centroidx BETWEEN ${lng - d} AND ${lng + d} AND centroidy BETWEEN ${lat - d} AND ${lat + d}`
+    `BBOX(geom,${lng - d},${lat - d},${lng + d},${lat + d})`
   );
   url.searchParams.set("outputFormat", "application/json");
   url.searchParams.set("count", "8");

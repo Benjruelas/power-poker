@@ -147,7 +147,7 @@ function checkWfs(apiKey: string): Promise<CheckResult> {
     url.searchParams.set("typeNames", "pro:parcel_us");
     url.searchParams.set(
       "cql_filter",
-      `centroidx BETWEEN ${TEST_LNG - d} AND ${TEST_LNG + d} AND centroidy BETWEEN ${TEST_LAT - d} AND ${TEST_LAT + d}`
+      `BBOX(geom,${TEST_LNG - d},${TEST_LAT - d},${TEST_LNG + d},${TEST_LAT + d})`
     );
     url.searchParams.set("outputFormat", "application/json");
     url.searchParams.set("count", "5");

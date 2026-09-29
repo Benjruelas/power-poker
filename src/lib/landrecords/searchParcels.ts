@@ -1,4 +1,5 @@
 import type { GeocodeSuggestion } from "@/lib/geocode";
+import { landRecordsFetch } from "@/lib/landrecords/landRecordsAuth";
 
 const WFS_BASE = "https://api.landrecords.us/pro/wfs";
 const PROPERTY_NAME = [
@@ -25,13 +26,6 @@ type WfsFeature = {
 
 function escapeCql(value: string): string {
   return value.replace(/'/g, "''");
-}
-
-function authHeaders(apiKey: string) {
-  return {
-    Authorization: `Bearer ${apiKey}`,
-    Accept: "application/json",
-  };
 }
 
 function str(v: unknown): string {
@@ -155,10 +149,7 @@ async function wfsGetFeatures(
   url.searchParams.set("propertyName", PROPERTY_NAME);
   url.searchParams.set("cql_filter", cqlFilter);
 
-  const res = await fetch(url.toString(), {
-    headers: authHeaders(apiKey),
-    signal,
-  });
+  const res = await landRecordsFetch(url.toString(), { apiKey, signal });
   if (!res.ok) return [];
   const data = (await res.json()) as {
     error?: unknown;
@@ -200,6 +191,10 @@ function dedupeSuggestions(
   return out;
 }
 
+/**
+ * LandRecords WFS requires an indexed property or a spatial predicate
+ * (BBOX/INTERSECTS/DWITHIN); `centroidx/centroidy BETWEEN` is rejected.
+ */
 function proximityFilter(
   proximity: [number, number],
   deltaDeg: number
@@ -209,7 +204,7 @@ function proximityFilter(
   const maxX = lng + deltaDeg;
   const minY = lat - deltaDeg;
   const maxY = lat + deltaDeg;
-  return `centroidx BETWEEN ${minX} AND ${maxX} AND centroidy BETWEEN ${minY} AND ${maxY}`;
+  return `BBOX(geom,${minX},${minY},${maxX},${maxY})`;
 }
 
 const LRID_RE =
@@ -231,21 +226,12 @@ async function searchExactParcelIds(
       .filter((s): s is GeocodeSuggestion => s != null);
   }
 
-  const parts = [
-    `parcelid='${id}'`,
-    `parcelid2='${id}'`,
-    `ogparcelid='${id}'`,
-    `ogparcelid2='${id}'`,
-    `taxacctnum='${id}'`,
-  ];
+  // Nationwide (no spatial predicate) queries may only OR indexed columns —
+  // ogparcelid/ogparcelid2/taxacctnum would get the whole filter rejected.
+  // Those columns are still searched by searchParcelIdNear under a BBOX.
+  const parts = [`parcelid='${id}'`, `parcelid2='${id}'`];
   if (compact !== id) {
-    parts.push(
-      `parcelid='${compact}'`,
-      `parcelid2='${compact}'`,
-      `ogparcelid='${compact}'`,
-      `ogparcelid2='${compact}'`,
-      `taxacctnum='${compact}'`
-    );
+    parts.push(`parcelid='${compact}'`, `parcelid2='${compact}'`);
   }
   const feats = await wfsGetFeatures(`(${parts.join(" OR ")})`, apiKey, 6, signal);
   return feats
@@ -258,9 +244,10 @@ async function searchOwnerPrefix(
   apiKey: string,
   signal?: AbortSignal
 ): Promise<GeocodeSuggestion[]> {
-  const needle = escapeCql(q.trim().toLowerCase());
+  const needle = escapeCql(q.trim());
+  // ILIKE replaces strToLowerCase(...) LIKE — functions are no longer accepted
   const feats = await wfsGetFeatures(
-    `strToLowerCase(ownername) LIKE '${needle}%'`,
+    `ownername ILIKE '${needle}%'`,
     apiKey,
     6,
     signal
@@ -276,11 +263,11 @@ async function searchOwnerNear(
   apiKey: string,
   signal?: AbortSignal
 ): Promise<GeocodeSuggestion[]> {
-  const needle = escapeCql(q.trim().toLowerCase());
+  const needle = escapeCql(q.trim());
   // ~0.2° ≈ 12–14 mi — keeps contains search under LandRecords timeouts
   const spatial = proximityFilter(proximity, 0.2);
   const feats = await wfsGetFeatures(
-    `${spatial} AND strToLowerCase(ownername) LIKE '%${needle}%'`,
+    `${spatial} AND ownername ILIKE '%${needle}%'`,
     apiKey,
     6,
     signal
