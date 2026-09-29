@@ -125,13 +125,12 @@ async function fetchWfsByLrid(
  * LandRecords now requires an indexed property or a spatial predicate
  * (BBOX/INTERSECTS/DWITHIN); `centroidx/centroidy BETWEEN` is rejected.
  */
-async function fetchWfsByCentroid(
+async function fetchWfsWindowFeatures(
   lat: number,
   lng: number,
   apiKey: string,
-  lrid?: string,
   upstreamStatuses?: number[]
-): Promise<Record<string, unknown> | null> {
+): Promise<GeoJsonFeature[]> {
   const d = CENTROID_DELTA;
   const url = new URL(WFS_BASE);
   url.searchParams.set("service", "WFS");
@@ -145,10 +144,40 @@ async function fetchWfsByCentroid(
   url.searchParams.set("outputFormat", "application/json");
   url.searchParams.set("count", "8");
 
-  const features = await parseFeatures(
+  return parseFeatures(
     await landRecordsFetch(url.toString(), { apiKey }),
     upstreamStatuses
   );
+}
+
+/** Parcels whose polygon contains the point — exact even in dense downtowns. */
+async function fetchWfsByPointIntersects(
+  lat: number,
+  lng: number,
+  apiKey: string,
+  upstreamStatuses?: number[]
+): Promise<GeoJsonFeature[]> {
+  const url = new URL(WFS_BASE);
+  url.searchParams.set("service", "WFS");
+  url.searchParams.set("version", "2.0.0");
+  url.searchParams.set("request", "GetFeature");
+  url.searchParams.set("typeNames", "pro:parcel_us");
+  url.searchParams.set("cql_filter", `INTERSECTS(geom, POINT(${lng} ${lat}))`);
+  url.searchParams.set("outputFormat", "application/json");
+  url.searchParams.set("count", "5");
+
+  return parseFeatures(
+    await landRecordsFetch(url.toString(), { apiKey }),
+    upstreamStatuses
+  );
+}
+
+function pickFromWindow(
+  features: GeoJsonFeature[],
+  lat: number,
+  lng: number,
+  lrid?: string
+): Record<string, unknown> | null {
   if (!features.length) return null;
 
   if (lrid) {
@@ -173,6 +202,88 @@ async function fetchWfsByCentroid(
   if (best) return best;
   const smallest = pickParcelFeature(features, null);
   return smallest?.properties ?? null;
+}
+
+function hasOwnerName(props: Record<string, unknown> | null): boolean {
+  return Boolean(String(props?.ownername ?? "").trim());
+}
+
+/** Even-odd ray casting over Polygon / MultiPolygon rings (handles holes). */
+function pointInGeometry(
+  geometry: GeoJsonFeature["geometry"],
+  lng: number,
+  lat: number
+): boolean {
+  if (!geometry) return false;
+  const polys =
+    geometry.type === "Polygon"
+      ? [geometry.coordinates as number[][][]]
+      : geometry.type === "MultiPolygon"
+        ? (geometry.coordinates as number[][][][])
+        : [];
+  for (const rings of polys) {
+    let inside = false;
+    for (const ring of rings || []) {
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const [xi, yi] = ring[i]!;
+        const [xj, yj] = ring[j]!;
+        if (
+          yi! > lat !== yj! > lat &&
+          lng < ((xj! - xi!) * (lat - yi!)) / (yj! - yi!) + xi!
+        ) {
+          inside = !inside;
+        }
+      }
+    }
+    if (inside) return true;
+  }
+  return false;
+}
+
+function geometryBboxArea(geometry: GeoJsonFeature["geometry"]): number {
+  if (!geometry?.coordinates) return Infinity;
+  let minX = Infinity,
+    minY = Infinity,
+    maxX = -Infinity,
+    maxY = -Infinity;
+  const scan = (coords: unknown): void => {
+    if (!Array.isArray(coords)) return;
+    if (typeof coords[0] === "number" && typeof coords[1] === "number") {
+      minX = Math.min(minX, coords[0]);
+      maxX = Math.max(maxX, coords[0]);
+      minY = Math.min(minY, coords[1] as number);
+      maxY = Math.max(maxY, coords[1] as number);
+      return;
+    }
+    for (const c of coords) scan(c);
+  };
+  scan(geometry.coordinates);
+  if (minX === Infinity) return Infinity;
+  return (maxX - minX) * (maxY - minY);
+}
+
+/**
+ * Tile lrids can be a different data vintage than WFS/WMS in some counties
+ * (e.g. Parker County TX): every lrid-constrained lookup misses even though
+ * the parcel exists upstream with full owner data. Pick the smallest feature
+ * whose polygon contains the clicked point — geometric containment gives the
+ * same wrong-polygon protection the lrid check was for.
+ */
+function pickPointContainingOwner(
+  features: GeoJsonFeature[],
+  lat: number,
+  lng: number
+): Record<string, unknown> | null {
+  const containing = features.filter(
+    (f) => f.properties && pointInGeometry(f.geometry, lng, lat)
+  );
+  if (!containing.length) return null;
+  const owned = containing.filter((f) => hasOwnerName(f.properties ?? null));
+  const pool = owned.length ? owned : containing;
+  pool.sort(
+    (a, b) => geometryBboxArea(a.geometry) - geometryBboxArea(b.geometry)
+  );
+  return pool[0]?.properties ?? null;
 }
 
 export async function GET(request: Request) {
@@ -204,6 +315,8 @@ export async function GET(request: Request) {
     let properties: Record<string, unknown> | null = null;
     let source = "wms";
     const upstreamStatuses: number[] = [];
+    let wmsFeatures: GeoJsonFeature[] | null = null;
+    let windowFeatures: GeoJsonFeature[] | null = null;
 
     if (safeLrid) {
       properties = await fetchWfsByLrid(safeLrid, apiKey, upstreamStatuses);
@@ -211,10 +324,13 @@ export async function GET(request: Request) {
     }
 
     if (!properties) {
-      const wmsFeature = pickParcelFeature(
-        await fetchWmsFeaturesByPoint(lat, lng, apiKey, upstreamStatuses),
-        safeLrid || null
+      wmsFeatures = await fetchWmsFeaturesByPoint(
+        lat,
+        lng,
+        apiKey,
+        upstreamStatuses
       );
+      const wmsFeature = pickParcelFeature(wmsFeatures, safeLrid || null);
       properties = wmsFeature?.properties || null;
       if (properties) source = "wms";
     }
@@ -224,12 +340,17 @@ export async function GET(request: Request) {
     }
 
     if (!properties) {
-      properties = await fetchWfsByCentroid(
+      windowFeatures = await fetchWfsWindowFeatures(
         lat,
         lng,
         apiKey,
-        safeLrid || undefined,
         upstreamStatuses
+      );
+      properties = pickFromWindow(
+        windowFeatures,
+        lat,
+        lng,
+        safeLrid || undefined
       );
       if (properties) source = "wfs-centroid";
     }
@@ -251,6 +372,49 @@ export async function GET(request: Request) {
 
     if (properties && !propertiesMatchRequestedLrid(properties, safeLrid || null)) {
       properties = null;
+    }
+
+    // Counties where tile lrids don't exist in WFS/WMS (data-vintage mismatch,
+    // e.g. Parker County TX) end up here with no properties or owner-less
+    // sparse ones. Re-select by geometric containment and keep the requested
+    // lrid so the client's lrid check and tile highlight still work.
+    if (!hasOwnerName(properties)) {
+      if (!wmsFeatures) {
+        wmsFeatures = await fetchWmsFeaturesByPoint(
+          lat,
+          lng,
+          apiKey,
+          upstreamStatuses
+        );
+      }
+      const intersecting = await fetchWfsByPointIntersects(
+        lat,
+        lng,
+        apiKey,
+        upstreamStatuses
+      );
+      const contained = pickPointContainingOwner(
+        [...wmsFeatures, ...intersecting, ...(windowFeatures ?? [])],
+        lat,
+        lng
+      );
+      if (contained && hasOwnerName(contained)) {
+        const rebased: Record<string, unknown> = { ...contained };
+        if (safeLrid && !propertiesMatchRequestedLrid(rebased, safeLrid)) {
+          rebased.lrid_upstream = rebased.lrid;
+          rebased.lrid = safeLrid;
+        }
+        // Keep non-empty fields from the earlier (same-vintage) hit
+        if (properties) {
+          for (const [k, v] of Object.entries(properties)) {
+            if (v == null || String(v).trim() === "") continue;
+            const cur = rebased[k];
+            if (cur == null || String(cur).trim() === "") rebased[k] = v;
+          }
+        }
+        properties = rebased;
+        source = "point-match";
+      }
     }
 
     if (!properties) {
