@@ -1,6 +1,12 @@
 export const AUTH_COOKIE = "pp_auth";
 
-const AUTH_PAYLOAD = "power-poker-authed";
+/**
+ * Bump SESSION_VERSION to invalidate every issued auth cookie at once —
+ * all clients are forced back to the password screen on their next request.
+ */
+const SESSION_VERSION = 2;
+
+const AUTH_PAYLOAD = `power-poker-authed:v${SESSION_VERSION}`;
 
 export function isPasswordProtectionEnabled(): boolean {
   return Boolean(process.env.APP_PASSWORD?.trim());
