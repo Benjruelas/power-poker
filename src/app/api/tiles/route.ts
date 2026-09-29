@@ -60,15 +60,19 @@ function looksLikeMvt(buf: Buffer): boolean {
  * MapLibre keeps lower-z parents. At source minzoom there is no parent to keep,
  * so return 204 (silent blank) instead of 410.
  */
-function emptyTile(cacheable: boolean, zi?: number) {
+function emptyTile(cacheable: boolean, zi?: number, errorDetail?: string) {
   const status =
     typeof zi === "number" ? emptyParcelTileStatus(zi) : 204;
-  return new Response(null, {
-    status,
-    headers: {
-      "Cache-Control": cacheable ? EMPTY_CACHE_CONTROL : NO_STORE,
-    },
-  });
+  const headers: Record<string, string> = {
+    "Cache-Control": cacheable ? EMPTY_CACHE_CONTROL : NO_STORE,
+  };
+  if (errorDetail) {
+    // Visible in devtools so upstream failures don't look like empty coverage
+    headers["X-Parcel-Tile-Error"] = errorDetail
+      .replace(/[^\x20-\x7e]/g, " ")
+      .slice(0, 200);
+  }
+  return new Response(null, { status, headers });
 }
 
 function mvtResponse(buf: Buffer) {
@@ -235,5 +239,5 @@ export async function GET(request: Request) {
     return emptyTile(true, zi);
   }
 
-  return emptyTile(false, zi);
+  return emptyTile(false, zi, exact.kind === "error" ? exact.detail : undefined);
 }
