@@ -23,6 +23,14 @@ function isPublicPath(pathname: string): boolean {
   return false;
 }
 
+/** Share landing + OG image must stay public so iOS Messages can unfurl SMS previews. */
+function isPublicPath(pathname: string): boolean {
+  if (PUBLIC_PATHS.has(pathname)) return true;
+  // `/p/{token}` page and `/p/{token}/opengraph-image` (and related metadata routes)
+  if (pathname === "/p" || pathname.startsWith("/p/")) return true;
+  return false;
+}
+
 export async function middleware(request: NextRequest) {
   if (!isPasswordProtectionEnabled()) {
     return NextResponse.next();
