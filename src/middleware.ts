@@ -7,7 +7,13 @@ import {
   verifyAuthToken,
 } from "@/lib/auth/siteGate";
 
-const PUBLIC_PATHS = new Set(["/login", "/api/auth/login"]);
+// /api/parcel/health is public (and IP rate-limited) so LandRecords outages
+// can be diagnosed without a session; it exposes statuses only, no secrets.
+const PUBLIC_PATHS = new Set([
+  "/login",
+  "/api/auth/login",
+  "/api/parcel/health",
+]);
 
 /** Share landing + OG image must stay public so Messages can unfurl link previews. */
 function isPublicPath(pathname: string): boolean {
