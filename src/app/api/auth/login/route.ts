@@ -3,17 +3,16 @@ import { NextResponse } from "next/server";
 import {
   AUTH_COOKIE,
   createAuthToken,
-  getAppPassword,
   getAuthSecret,
   isPasswordProtectionEnabled,
-  verifyPassword,
+  resolveLoginRole,
 } from "@/lib/auth/siteGate";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   if (!isPasswordProtectionEnabled()) {
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, role: "full" as const });
   }
 
   let body: { password?: string };
@@ -24,12 +23,13 @@ export async function POST(request: Request) {
   }
 
   const password = typeof body.password === "string" ? body.password : "";
-  if (!verifyPassword(password, getAppPassword())) {
+  const role = resolveLoginRole(password);
+  if (!role) {
     return NextResponse.json({ error: "Incorrect password" }, { status: 401 });
   }
 
-  const token = await createAuthToken(getAuthSecret());
-  const response = NextResponse.json({ ok: true });
+  const token = await createAuthToken(getAuthSecret(), role);
+  const response = NextResponse.json({ ok: true, role });
   response.cookies.set({
     name: AUTH_COOKIE,
     value: token,

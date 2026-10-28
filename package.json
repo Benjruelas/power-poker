@@ -25,6 +25,7 @@
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.2",
     "geojson-vt": "^4.0.3",
+    "jspdf": "^4.2.1",
     "lucide-react": "^1.28.0",
     "maplibre-gl": "4.7.1",
     "next": "16.2.12",

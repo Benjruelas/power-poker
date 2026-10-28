@@ -7,6 +7,7 @@ import {
   patchCrmLead,
 } from "@/lib/crm/repo";
 import type { CrmLeadPatch } from "@/lib/crm/types";
+import { syncPartnerLeadSharedFieldsFromCrm } from "@/lib/partner/repo";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -37,6 +38,21 @@ export async function PATCH(req: Request, ctx: Ctx) {
     const lead = await patchCrmLead(id, body);
     if (!lead) {
       return NextResponse.json({ error: "Lead not found" }, { status: 404 });
+    }
+    // Keep Partner CRM (CL2) parcel facts in sync when this lead was sent over.
+    try {
+      await syncPartnerLeadSharedFieldsFromCrm(id, {
+        lrid: body.lrid,
+        address: body.address,
+        ownerName: body.ownerName,
+        county: body.county,
+        acres: body.acres,
+        marketValue: body.marketValue,
+        latitude: body.latitude,
+        longitude: body.longitude,
+      });
+    } catch (e) {
+      console.error("partner shared-field sync", e);
     }
     return NextResponse.json({ lead, backend: crmBackend() });
   } catch (e) {

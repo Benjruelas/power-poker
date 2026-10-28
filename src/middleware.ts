@@ -2,9 +2,10 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import {
   AUTH_COOKIE,
+  getAuthRole,
   getAuthSecret,
+  isPartnerAllowedPath,
   isPasswordProtectionEnabled,
-  verifyAuthToken,
 } from "@/lib/auth/siteGate";
 
 // /api/parcel/health is public (and IP rate-limited) so LandRecords outages
@@ -29,34 +30,38 @@ export async function middleware(request: NextRequest) {
   }
 
   const { pathname } = request.nextUrl;
+  const secret = getAuthSecret();
+  const token = request.cookies.get(AUTH_COOKIE)?.value;
+  const role = token ? await getAuthRole(token, secret) : null;
 
   if (isPublicPath(pathname)) {
-    const token = request.cookies.get(AUTH_COOKIE)?.value;
-    if (
-      pathname === "/login" &&
-      token &&
-      (await verifyAuthToken(token, getAuthSecret()))
-    ) {
-      return NextResponse.redirect(new URL("/", request.url));
+    if (pathname === "/login" && role) {
+      const dest = role === "partner" ? "/partner" : "/";
+      return NextResponse.redirect(new URL(dest, request.url));
     }
     return NextResponse.next();
   }
 
-  const token = request.cookies.get(AUTH_COOKIE)?.value;
-  if (token && (await verifyAuthToken(token, getAuthSecret()))) {
-    return NextResponse.next();
+  if (!role) {
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const loginUrl = new URL("/login", request.url);
+    const redirectTarget = `${pathname}${request.nextUrl.search}`;
+    if (redirectTarget && redirectTarget !== "/") {
+      loginUrl.searchParams.set("redirect", redirectTarget);
+    }
+    return NextResponse.redirect(loginUrl);
   }
 
-  if (pathname.startsWith("/api/")) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (role === "partner" && !isPartnerAllowedPath(pathname)) {
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    return NextResponse.redirect(new URL("/partner", request.url));
   }
 
-  const loginUrl = new URL("/login", request.url);
-  const redirectTarget = `${pathname}${request.nextUrl.search}`;
-  if (redirectTarget && redirectTarget !== "/") {
-    loginUrl.searchParams.set("redirect", redirectTarget);
-  }
-  return NextResponse.redirect(loginUrl);
+  return NextResponse.next();
 }
 
 export const config = {

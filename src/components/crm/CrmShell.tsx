@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { ArrowLeft, BriefcaseBusiness, Map, Settings } from "lucide-react";
+import { ArrowLeft, BriefcaseBusiness, Map, Settings, Users } from "lucide-react";
 
 import {
   HeaderActionLink,
@@ -79,6 +79,10 @@ export function CrmShell({
           )}
         >
           {actions}
+          <HeaderActionLink href="/partner" aria-label="Partner CRM">
+            <Users className="size-4" strokeWidth={2.5} />
+            <span className={headerLabelClass}>Partner</span>
+          </HeaderActionLink>
           <HeaderActionLink href="/" aria-label="Map">
             <Map className="size-4" strokeWidth={2.5} />
             <span className={headerLabelClass}>Map</span>

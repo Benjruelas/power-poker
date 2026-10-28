@@ -2,8 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { FeatureCollection, Point } from "geojson";
-import { ExternalLink, MapPin, X } from "lucide-react";
+import { ExternalLink, MapPin, PencilRuler, X } from "lucide-react";
+import Link from "next/link";
 
+import { sitePlanHref } from "@/lib/siteplan/geometry";
 import { useAppStore } from "@/lib/store";
 import {
   buildCategorizedProperties,
@@ -212,6 +214,19 @@ export function ParcelDetailsPanel({ substations = null }: Props) {
           <ExternalLink className="size-3.5" />
           Directions
         </a>
+        <Link
+          href={sitePlanHref({
+            lrid: selected.lrid || selected.id,
+            parcelId: selected.id,
+            lat: selected.lat,
+            lng: selected.lng,
+            address: selected.address,
+          })}
+          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-amber-600/40 bg-amber-500/10 px-3 text-xs font-medium text-amber-950 hover:bg-amber-500/20"
+        >
+          <PencilRuler className="size-3.5" />
+          Site plan
+        </Link>
         <PropertyRadarButton
           parcel={{
             address:

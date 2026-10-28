@@ -8,6 +8,7 @@ import { HeaderBrand, headerBarClass } from "@/components/shared/appHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import type { AuthRole } from "@/lib/auth/siteGate";
 
 export function LoginForm() {
   const router = useRouter();
@@ -28,11 +29,22 @@ export function LoginForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ password }),
       });
+      const data = (await res.json().catch(() => ({}))) as {
+        role?: AuthRole;
+        error?: string;
+      };
       if (!res.ok) {
         setError("Incorrect password");
         return;
       }
-      router.replace(redirectTo);
+      const role = data.role ?? "full";
+      const dest =
+        role === "partner"
+          ? "/partner"
+          : redirectTo.startsWith("/partner")
+            ? redirectTo
+            : redirectTo || "/";
+      router.replace(dest);
       router.refresh();
     } catch {
       setError("Could not sign in. Try again.");

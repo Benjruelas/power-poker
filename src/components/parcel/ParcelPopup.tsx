@@ -6,6 +6,10 @@ import { ChevronUp, X } from "lucide-react";
 import type maplibregl from "maplibre-gl";
 
 import type { ParcelPopupView } from "@/lib/landrecords/parcelPropertyMap";
+import {
+  parcelPolygonFromMap,
+  sitePlanHref,
+} from "@/lib/siteplan/geometry";
 import { useAppStore } from "@/lib/store";
 import {
   ParcelReviewBadge,
@@ -140,19 +144,56 @@ export function ParcelPopup({
               size="sm"
             />
           ) : null}
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              e.preventDefault();
-              queueMicrotask(() => onOpenDetails());
-            }}
-            className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-slate-100 px-2 py-1.5 text-xs font-medium text-slate-800 transition-colors hover:bg-slate-200"
-            title="More Details"
-          >
-            <ChevronUp size={12} />
-            <span>Details</span>
-          </button>
+          <div className="grid grid-cols-2 gap-1.5">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                queueMicrotask(() => onOpenDetails());
+              }}
+              className="flex items-center justify-center gap-1.5 rounded-lg bg-slate-100 px-2 py-1.5 text-xs font-medium text-slate-800 transition-colors hover:bg-slate-200"
+              title="More Details"
+            >
+              <ChevronUp size={12} />
+              <span>Details</span>
+            </button>
+            <a
+              href={sitePlanHref({
+                lrid: parcelFocus?.lrid || parcelId,
+                parcelId: parcelId,
+                lat: popupData.lat,
+                lng: popupData.lng,
+                address: popupData.address,
+              })}
+              onClick={(e) => {
+                e.stopPropagation();
+                const key = parcelFocus?.lrid || parcelId;
+                const map = mapRef.current;
+                if (key && map) {
+                  const poly = parcelPolygonFromMap(map, {
+                    lrid: parcelFocus?.lrid,
+                    parcelId,
+                  });
+                  if (poly) {
+                    try {
+                      sessionStorage.setItem(
+                        `power-poker-site-plan-poly:${key}`,
+                        JSON.stringify(poly)
+                      );
+                    } catch {
+                      /* ignore */
+                    }
+                  }
+                }
+              }}
+              onPointerDown={(e) => e.stopPropagation()}
+              className="flex items-center justify-center gap-1 rounded-lg bg-amber-500/15 px-2 py-1.5 text-xs font-medium text-amber-900 transition-colors hover:bg-amber-500/25"
+              title="Solar capacity-check site plan"
+            >
+              Site plan
+            </a>
+          </div>
         </div>
       </div>
     </div>

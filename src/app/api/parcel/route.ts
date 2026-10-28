@@ -104,6 +104,15 @@ async function fetchWfsByLrid(
   apiKey: string,
   upstreamStatuses?: number[]
 ): Promise<Record<string, unknown> | null> {
+  const feature = await fetchWfsFeatureByLrid(lrid, apiKey, upstreamStatuses);
+  return feature?.properties ?? null;
+}
+
+async function fetchWfsFeatureByLrid(
+  lrid: string,
+  apiKey: string,
+  upstreamStatuses?: number[]
+): Promise<GeoJsonFeature | null> {
   const url = new URL(WFS_BASE);
   url.searchParams.set("service", "WFS");
   url.searchParams.set("version", "2.0.0");
@@ -117,7 +126,52 @@ async function fetchWfsByLrid(
     await landRecordsFetch(url.toString(), { apiKey }),
     upstreamStatuses
   );
-  return features[0]?.properties ?? null;
+  return features[0] ?? null;
+}
+
+function pickFeatureFromWindow(
+  features: GeoJsonFeature[],
+  lat: number,
+  lng: number,
+  lrid?: string
+): GeoJsonFeature | null {
+  if (!features.length) return null;
+  if (lrid) {
+    return pickParcelFeature(features, lrid);
+  }
+  let best: GeoJsonFeature | null = null;
+  let bestDist = Number.POSITIVE_INFINITY;
+  for (const f of features) {
+    const p = f.properties;
+    if (!p) continue;
+    const cx = Number(p.centroidx ?? p.surfpointx);
+    const cy = Number(p.centroidy ?? p.surfpointy);
+    if (!Number.isFinite(cx) || !Number.isFinite(cy)) continue;
+    const dist = (cx - lng) ** 2 + (cy - lat) ** 2;
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = f;
+    }
+  }
+  if (best) return best;
+  return pickParcelFeature(features, null);
+}
+
+function pickPointContainingOwnerFeature(
+  features: GeoJsonFeature[],
+  lat: number,
+  lng: number
+): GeoJsonFeature | null {
+  const containing = features.filter(
+    (f) => f.properties && pointInGeometry(f.geometry, lng, lat)
+  );
+  if (!containing.length) return null;
+  const owned = containing.filter((f) => hasOwnerName(f.properties ?? null));
+  const pool = owned.length ? owned : containing;
+  pool.sort(
+    (a, b) => geometryBboxArea(a.geometry) - geometryBboxArea(b.geometry)
+  );
+  return pool[0] ?? null;
 }
 
 /**
@@ -295,6 +349,7 @@ export async function GET(request: Request) {
   const lng = parseFloat(searchParams.get("lng") ?? "");
   const lrid = (searchParams.get("lrid") ?? "").trim();
   const safeLrid = lrid && /^[\w-]+$/.test(lrid) ? lrid : "";
+  const wantGeometry = searchParams.get("geometry") === "1";
 
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
     return Response.json(
@@ -313,13 +368,24 @@ export async function GET(request: Request) {
 
   try {
     let properties: Record<string, unknown> | null = null;
+    let geometry: GeoJsonFeature["geometry"] | null = null;
     let source = "wms";
     const upstreamStatuses: number[] = [];
     let wmsFeatures: GeoJsonFeature[] | null = null;
     let windowFeatures: GeoJsonFeature[] | null = null;
 
     if (safeLrid) {
-      properties = await fetchWfsByLrid(safeLrid, apiKey, upstreamStatuses);
+      if (wantGeometry) {
+        const feat = await fetchWfsFeatureByLrid(
+          safeLrid,
+          apiKey,
+          upstreamStatuses
+        );
+        properties = feat?.properties ?? null;
+        geometry = feat?.geometry ?? null;
+      } else {
+        properties = await fetchWfsByLrid(safeLrid, apiKey, upstreamStatuses);
+      }
       if (properties) source = "wfs";
     }
 
@@ -332,11 +398,13 @@ export async function GET(request: Request) {
       );
       const wmsFeature = pickParcelFeature(wmsFeatures, safeLrid || null);
       properties = wmsFeature?.properties || null;
+      if (wantGeometry) geometry = wmsFeature?.geometry ?? null;
       if (properties) source = "wms";
     }
 
     if (properties && !propertiesMatchRequestedLrid(properties, safeLrid || null)) {
       properties = null;
+      geometry = null;
     }
 
     if (!properties) {
@@ -346,17 +414,29 @@ export async function GET(request: Request) {
         apiKey,
         upstreamStatuses
       );
-      properties = pickFromWindow(
-        windowFeatures,
-        lat,
-        lng,
-        safeLrid || undefined
-      );
+      if (wantGeometry) {
+        const feat = pickFeatureFromWindow(
+          windowFeatures,
+          lat,
+          lng,
+          safeLrid || undefined
+        );
+        properties = feat?.properties ?? null;
+        geometry = feat?.geometry ?? null;
+      } else {
+        properties = pickFromWindow(
+          windowFeatures,
+          lat,
+          lng,
+          safeLrid || undefined
+        );
+      }
       if (properties) source = "wfs-centroid";
     }
 
     if (properties && !propertiesMatchRequestedLrid(properties, safeLrid || null)) {
       properties = null;
+      geometry = null;
     }
 
     // TX (and some other states) are present in vector tiles but absent from WFS
@@ -372,6 +452,7 @@ export async function GET(request: Request) {
 
     if (properties && !propertiesMatchRequestedLrid(properties, safeLrid || null)) {
       properties = null;
+      geometry = null;
     }
 
     // Counties where tile lrids don't exist in WFS/WMS (data-vintage mismatch,
@@ -393,27 +474,50 @@ export async function GET(request: Request) {
         apiKey,
         upstreamStatuses
       );
-      const contained = pickPointContainingOwner(
-        [...wmsFeatures, ...intersecting, ...(windowFeatures ?? [])],
-        lat,
-        lng
-      );
-      if (contained && hasOwnerName(contained)) {
-        const rebased: Record<string, unknown> = { ...contained };
-        if (safeLrid && !propertiesMatchRequestedLrid(rebased, safeLrid)) {
-          rebased.lrid_upstream = rebased.lrid;
-          rebased.lrid = safeLrid;
-        }
-        // Keep non-empty fields from the earlier (same-vintage) hit
-        if (properties) {
-          for (const [k, v] of Object.entries(properties)) {
-            if (v == null || String(v).trim() === "") continue;
-            const cur = rebased[k];
-            if (cur == null || String(cur).trim() === "") rebased[k] = v;
+      const pool = [
+        ...wmsFeatures,
+        ...intersecting,
+        ...(windowFeatures ?? []),
+      ];
+      if (wantGeometry) {
+        const containedFeat = pickPointContainingOwnerFeature(pool, lat, lng);
+        const contained = containedFeat?.properties ?? null;
+        if (contained && hasOwnerName(contained)) {
+          const rebased: Record<string, unknown> = { ...contained };
+          if (safeLrid && !propertiesMatchRequestedLrid(rebased, safeLrid)) {
+            rebased.lrid_upstream = rebased.lrid;
+            rebased.lrid = safeLrid;
           }
+          if (properties) {
+            for (const [k, v] of Object.entries(properties)) {
+              if (v == null || String(v).trim() === "") continue;
+              const cur = rebased[k];
+              if (cur == null || String(cur).trim() === "") rebased[k] = v;
+            }
+          }
+          properties = rebased;
+          geometry = containedFeat?.geometry ?? geometry;
+          source = "point-match";
         }
-        properties = rebased;
-        source = "point-match";
+      } else {
+        const contained = pickPointContainingOwner(pool, lat, lng);
+        if (contained && hasOwnerName(contained)) {
+          const rebased: Record<string, unknown> = { ...contained };
+          if (safeLrid && !propertiesMatchRequestedLrid(rebased, safeLrid)) {
+            rebased.lrid_upstream = rebased.lrid;
+            rebased.lrid = safeLrid;
+          }
+          // Keep non-empty fields from the earlier (same-vintage) hit
+          if (properties) {
+            for (const [k, v] of Object.entries(properties)) {
+              if (v == null || String(v).trim() === "") continue;
+              const cur = rebased[k];
+              if (cur == null || String(cur).trim() === "") rebased[k] = v;
+            }
+          }
+          properties = rebased;
+          source = "point-match";
+        }
       }
     }
 
@@ -449,7 +553,7 @@ export async function GET(request: Request) {
     }
 
     return Response.json(
-      { properties, source },
+      wantGeometry ? { properties, source, geometry } : { properties, source },
       {
         status: 200,
         headers: { "Cache-Control": "private, max-age=300" },

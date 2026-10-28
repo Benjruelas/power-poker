@@ -11,6 +11,7 @@ import {
   Phone,
   Plus,
   Trash2,
+  Users,
   X,
 } from "lucide-react";
 
@@ -57,20 +58,31 @@ export function CrmLeadDetailPage({ leadId }: { leadId: string }) {
   const [contactDraft, setContactDraft] = useState<CrmContactInput>(
     emptyContactDraft
   );
+  const [partnerLeadId, setPartnerLeadId] = useState<string | null>(null);
+  const [sendingPartner, setSendingPartner] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const [leadRes, settingsRes] = await Promise.all([
+      const [leadRes, settingsRes, partnerRes] = await Promise.all([
         fetch(`/api/crm/leads/${leadId}`),
         fetch("/api/crm/settings"),
+        fetch(
+          `/api/partner/send?crmLeadId=${encodeURIComponent(leadId)}`
+        ).catch(() => null),
       ]);
       const leadData = await leadRes.json();
       const settingsData = await settingsRes.json();
       if (!leadRes.ok) throw new Error(leadData.error || "Lead not found");
       setLead(leadData.lead);
       setSettings(settingsData.settings ?? null);
+      if (partnerRes?.ok) {
+        const partnerData = await partnerRes.json();
+        setPartnerLeadId(partnerData.lead?.id ?? null);
+      } else {
+        setPartnerLeadId(null);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
     } finally {
@@ -219,6 +231,26 @@ export function CrmLeadDetailPage({ leadId }: { leadId: string }) {
     if (res.ok) router.push("/crm");
   };
 
+  const sendToPartner = async () => {
+    setSendingPartner(true);
+    setError("");
+    try {
+      const res = await fetch("/api/partner/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ crmLeadId: leadId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || "Failed to send to Partner CRM");
+        return;
+      }
+      setPartnerLeadId(data.lead?.id ?? null);
+    } finally {
+      setSendingPartner(false);
+    }
+  };
+
   if (loading) {
     return (
       <CrmShell>
@@ -254,6 +286,28 @@ export function CrmLeadDetailPage({ leadId }: { leadId: string }) {
             <MapPinned className="size-4" strokeWidth={2.5} />
             <span className={headerLabelClass}>View on map</span>
           </HeaderActionLink>
+          {partnerLeadId ? (
+            <HeaderActionLink
+              href={`/partner/${partnerLeadId}`}
+              aria-label="Open in Partner CRM"
+            >
+              <Users className="size-4" strokeWidth={2.5} />
+              <span className={headerLabelClass}>On Partner CRM</span>
+            </HeaderActionLink>
+          ) : (
+            <Button
+              className={headerBtnOutlineClass}
+              variant="outline"
+              onClick={() => void sendToPartner()}
+              disabled={sendingPartner}
+              aria-label="Send to Partner CRM"
+            >
+              <Users className="size-4" />
+              <span className={headerLabelClass}>
+                {sendingPartner ? "Sending…" : "Send to Partner CRM"}
+              </span>
+            </Button>
+          )}
           <PropertyRadarButton
             variant="header"
             parcel={{

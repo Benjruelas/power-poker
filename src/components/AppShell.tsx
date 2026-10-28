@@ -12,6 +12,7 @@ import {
   PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
+  Users,
 } from "lucide-react";
 
 import {
@@ -199,6 +200,10 @@ export function AppShell() {
               {error}
             </span>
           )}
+          <HeaderActionLink href="/partner" aria-label="Partner CRM">
+            <Users className="size-4" strokeWidth={2.5} />
+            <span className="hidden sm:inline">Partner</span>
+          </HeaderActionLink>
           <HeaderActionLink href="/crm" aria-label="CRM">
             <BriefcaseBusiness className="size-4" strokeWidth={2.5} />
             <span className="sm:inline">CRM</span>

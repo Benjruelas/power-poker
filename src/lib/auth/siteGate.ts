@@ -1,12 +1,16 @@
 export const AUTH_COOKIE = "pp_auth";
 
+export type AuthRole = "full" | "partner";
+
 /**
  * Bump SESSION_VERSION to invalidate every issued auth cookie at once —
  * all clients are forced back to the password screen on their next request.
  */
-const SESSION_VERSION = 2;
+const SESSION_VERSION = 3;
 
-const AUTH_PAYLOAD = `power-poker-authed:v${SESSION_VERSION}`;
+function authPayload(role: AuthRole): string {
+  return `power-poker-authed:v${SESSION_VERSION}:${role}`;
+}
 
 export function isPasswordProtectionEnabled(): boolean {
   return Boolean(process.env.APP_PASSWORD?.trim());
@@ -14,6 +18,10 @@ export function isPasswordProtectionEnabled(): boolean {
 
 export function getAppPassword(): string {
   return process.env.APP_PASSWORD?.trim() ?? "";
+}
+
+export function getPartnerPassword(): string {
+  return process.env.PARTNER_PASSWORD?.trim() ?? "";
 }
 
 export function getAuthSecret(): string {
@@ -24,7 +32,22 @@ export function getAuthSecret(): string {
   );
 }
 
-export async function createAuthToken(secret: string): Promise<string> {
+/**
+ * Resolve which shared password was entered.
+ * Identical APP_PASSWORD and PARTNER_PASSWORD prefer full access.
+ */
+export function resolveLoginRole(password: string): AuthRole | null {
+  const app = getAppPassword();
+  const partner = getPartnerPassword();
+  if (app && verifyPassword(password, app)) return "full";
+  if (partner && verifyPassword(password, partner)) return "partner";
+  return null;
+}
+
+export async function createAuthToken(
+  secret: string,
+  role: AuthRole = "full"
+): Promise<string> {
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(secret),
@@ -35,7 +58,7 @@ export async function createAuthToken(secret: string): Promise<string> {
   const signature = await crypto.subtle.sign(
     "HMAC",
     key,
-    new TextEncoder().encode(AUTH_PAYLOAD)
+    new TextEncoder().encode(authPayload(role))
   );
   return Array.from(new Uint8Array(signature))
     .map((b) => b.toString(16).padStart(2, "0"))
@@ -46,9 +69,19 @@ export async function verifyAuthToken(
   token: string,
   secret: string
 ): Promise<boolean> {
-  if (!token || !secret) return false;
-  const expected = await createAuthToken(secret);
-  return timingSafeEqual(token, expected);
+  return (await getAuthRole(token, secret)) !== null;
+}
+
+export async function getAuthRole(
+  token: string,
+  secret: string
+): Promise<AuthRole | null> {
+  if (!token || !secret) return null;
+  const full = await createAuthToken(secret, "full");
+  if (timingSafeEqual(token, full)) return "full";
+  const partner = await createAuthToken(secret, "partner");
+  if (timingSafeEqual(token, partner)) return "partner";
+  return null;
 }
 
 export function verifyPassword(input: string, expected: string): boolean {
@@ -63,4 +96,14 @@ function timingSafeEqual(a: string, b: string): boolean {
     diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
   }
   return diff === 0;
+}
+
+/** Paths partner sessions may open (pages + matching APIs). */
+export function isPartnerAllowedPath(pathname: string): boolean {
+  if (pathname === "/partner" || pathname.startsWith("/partner/")) return true;
+  if (pathname === "/api/partner" || pathname.startsWith("/api/partner/")) {
+    return true;
+  }
+  if (pathname === "/api/auth/session") return true;
+  return false;
 }
